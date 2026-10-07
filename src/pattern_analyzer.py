@@ -29,6 +29,7 @@ class Match:
     grouped_ids: tuple[int, ...]
     urls: tuple[str, ...]
     composition: tuple[str, ...]
+    details: tuple[dict, ...]
 
 
 def classify_messages(messages: Iterable[TelegramMessage]) -> list[Match]:
@@ -41,14 +42,12 @@ def classify_messages(messages: Iterable[TelegramMessage]) -> list[Match]:
 
         if current.grouped_id is not None:
             group_end = i + 1
-            while (
-                group_end < len(items)
-                and items[group_end].grouped_id == current.grouped_id
-            ):
+            while group_end < len(items) and items[group_end].grouped_id == current.grouped_id:
                 group_end += 1
 
             group = items[i:group_end]
-            group_match = _classify_group(group, items[group_end] if group_end < len(items) else None)
+            next_message = items[group_end] if group_end < len(items) else None
+            group_match = _classify_group(group, next_message)
 
             if group_match:
                 matches.append(group_match)
@@ -65,6 +64,7 @@ def classify_messages(messages: Iterable[TelegramMessage]) -> list[Match]:
                     grouped_ids=(),
                     urls=current.urls,
                     composition=("video", "link"),
+                    details=(_detail(current),),
                 )
             )
             i += 1
@@ -81,6 +81,7 @@ def classify_messages(messages: Iterable[TelegramMessage]) -> list[Match]:
                         grouped_ids=(),
                         urls=current.urls,
                         composition=("link", "video"),
+                        details=(_detail(current), _detail(nxt)),
                     )
                 )
                 i += 2
@@ -100,6 +101,7 @@ def classify_messages(messages: Iterable[TelegramMessage]) -> list[Match]:
                         grouped_ids=(),
                         urls=nxt.urls,
                         composition=("video", "link"),
+                        details=(_detail(current), _detail(nxt)),
                     )
                 )
                 i += 2
@@ -114,20 +116,32 @@ def _classify_group(
     group: list[TelegramMessage],
     next_message: TelegramMessage | None,
 ) -> Match | None:
-    videos = [m for m in group if m.has_video]
-    images = [m for m in group if m.has_image and not m.has_video]
     urls = _unique_urls(group)
+    external_link = False
 
     if not urls and next_message is not None and _is_link_only(next_message):
-        urls = next_message.urls
-        message_ids = tuple(m.message_id for m in group) + (next_message.message_id,)
-    else:
-        message_ids = tuple(m.message_id for m in group)
+        urls = list(next_message.urls)
+        external_link = True
 
-    if len(videos) != 1:
+    kinds = [
+        "video" if m.has_video else "image" if m.has_image else "other"
+        for m in group
+    ]
+
+    if kinds not in (["video", "image"], ["image", "image", "video"]):
         return None
 
-    if len(group) == 2 and len(images) == 1 and urls:
+    if "video" not in kinds:
+        return None
+
+    details = tuple(_detail(m) for m in group)
+    message_ids = tuple(m.message_id for m in group)
+
+    if external_link:
+        details = details + (_detail(next_message),)
+        message_ids = message_ids + (next_message.message_id,)
+
+    if kinds == ["video", "image"] and urls:
         return Match(
             pattern=PATTERN_VIDEO_IMAGE_LINK,
             source_id=group[0].source_id,
@@ -135,9 +149,10 @@ def _classify_group(
             grouped_ids=(group[0].grouped_id,) if group[0].grouped_id is not None else (),
             urls=tuple(urls),
             composition=("video", "image", "link"),
+            details=details,
         )
 
-    if len(group) == 3 and len(images) == 2 and urls:
+    if kinds == ["image", "image", "video"] and urls:
         return Match(
             pattern=PATTERN_TWO_IMAGES_VIDEO_LINK,
             source_id=group[0].source_id,
@@ -145,6 +160,7 @@ def _classify_group(
             grouped_ids=(group[0].grouped_id,) if group[0].grouped_id is not None else (),
             urls=tuple(urls),
             composition=("image", "image", "video", "link"),
+            details=details,
         )
 
     return None
@@ -169,3 +185,14 @@ def _unique_urls(messages: Iterable[TelegramMessage]) -> list[str]:
                 result.append(url)
 
     return result
+
+
+def _detail(message: TelegramMessage) -> dict:
+    kind = "video" if message.has_video else "image" if message.has_image else "link/text"
+    return {
+        "message_id": message.message_id,
+        "date": message.date.isoformat() if message.date else None,
+        "grouped_id": message.grouped_id,
+        "type": kind,
+        "urls": list(message.urls),
+    }
