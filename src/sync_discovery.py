@@ -35,100 +35,128 @@ async def discover_sync_candidates(
 ) -> AsyncIterator[SyncCandidate]:
     """Historical candidate state machine adapted from ArmoredSync.
 
+    Forum sources are traversed topic-by-topic. Non-forum sources are traversed
+    directly from source history. Both paths use the same candidate state machine.
     This module is intentionally read-only: it never downloads media and never
     consults or mutates the production SQLite database.
     """
-    topics = await reader.discover_topics(source_id)
+    mode = await reader.source_mode(source_id)
 
-    for topic_id, topic_name in topics:
-        pending_video: TelegramMessage | None = None
-        pending_group_id: int | None = None
-        pending_group: list[TelegramMessage] = []
+    if mode == "forum":
+        topics = await reader.discover_topics(source_id)
+        for topic_id, topic_name in topics:
+            async for candidate in _discover_message_sequence(
+                reader.iter_topic(source_id, topic_id),
+                source_id,
+                topic_id,
+                topic_name,
+            ):
+                yield candidate
+        return
 
-        async def flush_group() -> AsyncIterator[SyncCandidate]:
-            nonlocal pending_group_id, pending_group
-            if pending_group:
-                for candidate in _resolve_group(
-                    pending_group,
-                    source_id,
-                    topic_id,
-                    topic_name,
-                ):
-                    yield candidate
-            pending_group_id = None
-            pending_group = []
+    async for candidate in _discover_message_sequence(
+        reader.iter_source(source_id),
+        source_id,
+        0,
+        "",
+    ):
+        yield candidate
 
-        async for message in reader.iter_topic(source_id, topic_id):
-            grouped_id = message.grouped_id
-            if grouped_id is not None:
-                grouped_id = int(grouped_id)
 
-                if pending_group_id is None:
-                    if pending_video is not None:
-                        candidate = _resolve_pending(pending_video)
-                        if candidate is not None:
-                            yield _with_topic(candidate, source_id, topic_id, topic_name)
-                        pending_video = None
+async def _discover_message_sequence(
+    messages: AsyncIterator[TelegramMessage],
+    source_id: int,
+    topic_id: int,
+    topic_name: str,
+) -> AsyncIterator[SyncCandidate]:
+    pending_video: TelegramMessage | None = None
+    pending_group_id: int | None = None
+    pending_group: list[TelegramMessage] = []
 
-                    pending_group_id = grouped_id
-                    pending_group = [message]
+    async def flush_group() -> AsyncIterator[SyncCandidate]:
+        nonlocal pending_group_id, pending_group
+        if pending_group:
+            for candidate in _resolve_group(
+                pending_group,
+                source_id,
+                topic_id,
+                topic_name,
+            ):
+                yield candidate
+        pending_group_id = None
+        pending_group = []
 
-                elif grouped_id == pending_group_id:
-                    pending_group.append(message)
+    async for message in messages:
+        grouped_id = message.grouped_id
+        if grouped_id is not None:
+            grouped_id = int(grouped_id)
 
-                else:
-                    async for candidate in flush_group():
-                        yield candidate
-                    pending_group_id = grouped_id
-                    pending_group = [message]
+            if pending_group_id is None:
+                if pending_video is not None:
+                    candidate = _resolve_pending(pending_video)
+                    if candidate is not None:
+                        yield _with_topic(candidate, source_id, topic_id, topic_name)
+                    pending_video = None
 
-                continue
+                pending_group_id = grouped_id
+                pending_group = [message]
 
-            if pending_group:
+            elif grouped_id == pending_group_id:
+                pending_group.append(message)
+
+            else:
                 async for candidate in flush_group():
                     yield candidate
+                pending_group_id = grouped_id
+                pending_group = [message]
 
-            if pending_video is not None:
-                if not message.has_video:
-                    original_url = message.urls[0] if message.urls else None
-                    if original_url:
-                        yield _make_followup(
-                            pending_video,
-                            message,
-                            source_id,
-                            topic_id,
-                            topic_name,
-                        )
-                pending_video = None
-
-            if not message.has_video:
-                continue
-
-            original_url = message.urls[0] if message.urls else None
-            if original_url is not None:
-                yield _make_direct(
-                    message,
-                    source_id,
-                    topic_id,
-                    topic_name,
-                )
-                continue
-
-            pending_video = message
+            continue
 
         if pending_group:
             async for candidate in flush_group():
                 yield candidate
 
         if pending_video is not None:
-            original_url = pending_video.urls[0] if pending_video.urls else None
-            if original_url is not None:
-                yield _make_direct(
-                    pending_video,
-                    source_id,
-                    topic_id,
-                    topic_name,
-                )
+            if not message.has_video:
+                original_url = message.urls[0] if message.urls else None
+                if original_url:
+                    yield _make_followup(
+                        pending_video,
+                        message,
+                        source_id,
+                        topic_id,
+                        topic_name,
+                    )
+            pending_video = None
+
+        if not message.has_video:
+            continue
+
+        original_url = message.urls[0] if message.urls else None
+        if original_url is not None:
+            yield _make_direct(
+                message,
+                source_id,
+                topic_id,
+                topic_name,
+            )
+            continue
+
+        pending_video = message
+
+    if pending_group:
+        async for candidate in flush_group():
+            yield candidate
+
+    if pending_video is not None:
+        original_url = pending_video.urls[0] if pending_video.urls else None
+        if original_url is not None:
+            yield _make_direct(
+                pending_video,
+                source_id,
+                topic_id,
+                topic_name,
+            )
 
 
 def _resolve_pending(message: TelegramMessage) -> SyncCandidate | None:
