@@ -35,6 +35,11 @@ class TelegramReader:
         title = getattr(entity, "title", None) or getattr(entity, "username", None)
         return str(title or source_id)
 
+    async def source_mode(self, source_id: int) -> str:
+        """Return forum for forum topics, otherwise source."""
+        entity = await self.client.get_entity(source_id)
+        return "forum" if bool(getattr(entity, "forum", False)) else "source"
+
     async def discover_topics(self, source_id: int) -> list[tuple[int, str]]:
         result = await self.client(
             functions.messages.GetForumTopicsRequest(
