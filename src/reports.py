@@ -9,7 +9,7 @@ from .pattern_analyzer import Match, PATTERNS
 
 
 class ReportWriter:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, source_ids: tuple[int, int, int]):
         self.report_dir = root / "reports"
         self.report_dir.mkdir(parents=True, exist_ok=True)
         self.evidence_path = self.report_dir / "pattern_evidence.jsonl"
@@ -35,7 +35,9 @@ class ReportWriter:
         )
         self._csv_writer.writeheader()
 
-        self.counts: dict[int, Counter[str]] = defaultdict(Counter)
+        self.counts: dict[int, Counter[str]] = {
+            source_id: Counter() for source_id in source_ids
+        }
         self.total = Counter()
 
     def write(self, match: Match) -> None:
