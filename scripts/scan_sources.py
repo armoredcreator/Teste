@@ -8,8 +8,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.config import load_config
-from src.pattern_analyzer import PATTERNS, classify_messages
+from src.pattern_analyzer import PATTERNS, classify_candidates
 from src.reports import ReportWriter
+from src.sync_discovery import discover_sync_candidates
 from src.telegram_reader import TelegramReader
 
 
@@ -41,17 +42,20 @@ async def main() -> None:
             print("-" * 64)
             print("Lendo histórico...")
 
-            messages = [message async for message in reader.iter_source(source_id)]
-            matches = classify_messages(messages)
-
-            for match in matches:
-                report.write(match)
+            matches = []
+            scanned = 0
+            async for candidate in discover_sync_candidates(reader, source_id):
+                scanned += len(candidate.message_ids)
+                match = classify_candidates(candidate)
+                if match is not None:
+                    matches.append(match)
+                    report.write(match)
 
             counts = {pattern: 0 for pattern in PATTERNS}
             for match in matches:
                 counts[match.pattern] += 1
 
-            print(f"Mensagens analisadas: {len(messages)}")
+            print(f"Mensagens/candidatos analisados pela descoberta do Sync: {scanned}")
             for pattern in PATTERNS:
                 print(f"  {pattern:<36}: {counts[pattern]}")
 
