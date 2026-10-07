@@ -196,3 +196,50 @@ def _detail(message: TelegramMessage) -> dict:
         "type": kind,
         "urls": list(message.urls),
     }
+
+def classify_candidates(candidate) -> Match | None:
+    """Classify only candidates produced by the Sync-compatible discovery."""
+    if candidate.kind == "direct":
+        return Match(
+            pattern=PATTERN_VIDEO_LINK,
+            source_id=candidate.source_id,
+            message_ids=candidate.message_ids,
+            grouped_ids=candidate.grouped_ids,
+            urls=candidate.urls,
+            composition=candidate.composition,
+            details=candidate.details,
+        )
+
+    if candidate.kind == "followup":
+        return Match(
+            pattern=PATTERN_VIDEO_THEN_LINK,
+            source_id=candidate.source_id,
+            message_ids=candidate.message_ids,
+            grouped_ids=candidate.grouped_ids,
+            urls=candidate.urls,
+            composition=candidate.composition,
+            details=candidate.details,
+        )
+
+    if candidate.kind == "group":
+        media = [value for value in candidate.composition if value != "link"]
+        videos = media.count("video")
+        images = media.count("image")
+        if videos == 1 and images == 1:
+            pattern = PATTERN_VIDEO_IMAGE_LINK
+        elif videos == 1 and images == 2:
+            pattern = PATTERN_TWO_IMAGES_VIDEO_LINK
+        else:
+            return None
+        return Match(
+            pattern=pattern,
+            source_id=candidate.source_id,
+            message_ids=candidate.message_ids,
+            grouped_ids=candidate.grouped_ids,
+            urls=candidate.urls,
+            composition=candidate.composition,
+            details=candidate.details,
+        )
+
+    return None
+\n
