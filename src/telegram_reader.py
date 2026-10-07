@@ -89,6 +89,30 @@ class TelegramReader:
                 return
             offset_id = oldest
 
+    def _convert(self, source_id: int, message) -> TelegramMessage:
+        text = message.raw_text or ""
+        urls = tuple(sorted(set(_extract_shopee_urls(message, text))))
+        document = getattr(message, "document", None)
+        mime = getattr(document, "mime_type", None) if document else None
+        has_video = bool(getattr(message, "video", None)) or bool(
+            mime and mime.lower().startswith("video/")
+        )
+        has_image = bool(getattr(message, "photo", None)) or bool(
+            mime and mime.lower().startswith("image/")
+        )
+        grouped_id = getattr(message, "grouped_id", None)
+
+        return TelegramMessage(
+            source_id=source_id,
+            message_id=int(getattr(message, "id", 0) or 0),
+            date=getattr(message, "date", None),
+            grouped_id=grouped_id,
+            has_video=has_video,
+            has_image=has_image,
+            urls=urls,
+            text=text,
+        )
+
     async def iter_source(self, source_id: int) -> AsyncIterator[TelegramMessage]:
         async for message in self.client.iter_messages(source_id, reverse=True):
             text = message.raw_text or ""
