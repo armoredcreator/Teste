@@ -1,0 +1,16 @@
+# Secrets and local Telegram session
+credentials/project.env
+credentials/telegram/
+*.session
+*.session-journal
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Local reports
+reports/*.json
+reports/*.csv
