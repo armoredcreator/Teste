@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
+from telethon.errors import ChannelInvalidError
+
 from .telegram_reader import TelegramReader, TelegramMessage
 
 
@@ -43,16 +45,24 @@ async def discover_sync_candidates(
     mode = await reader.source_mode(source_id)
 
     if mode == "forum":
-        topics = await reader.discover_topics(source_id)
-        for topic_id, topic_name in topics:
-            async for candidate in _discover_message_sequence(
-                reader.iter_topic(source_id, topic_id),
-                source_id,
-                topic_id,
-                topic_name,
-            ):
-                yield candidate
-        return
+        try:
+            topics = await reader.discover_topics(source_id)
+        except ChannelInvalidError:
+            # Some Telegram entities expose forum-like metadata but reject
+            # GetForumTopicsRequest. In that case the only valid historical
+            # traversal is the source history itself.
+            topics = None
+
+        if topics is not None:
+            for topic_id, topic_name in topics:
+                async for candidate in _discover_message_sequence(
+                    reader.iter_topic(source_id, topic_id),
+                    source_id,
+                    topic_id,
+                    topic_name,
+                ):
+                    yield candidate
+            return
 
     async for candidate in _discover_message_sequence(
         reader.iter_source(source_id),
