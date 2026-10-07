@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 from src.config import load_config
 from src.pattern_analyzer import PATTERNS, classify_messages
