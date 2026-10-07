@@ -31,15 +31,23 @@ def msg(i, *, video=False, image=False, urls=(), group=None):
 
 
 class FakeReader:
-    def __init__(self, topics, messages):
+    def __init__(self, topics, messages, *, mode="forum"):
         self._topics = topics
         self._messages = messages
+        self._mode = mode
+
+    async def source_mode(self, source_id):
+        return self._mode
 
     async def discover_topics(self, source_id):
         return self._topics
 
     async def iter_topic(self, source_id, topic_id):
         for message in self._messages[topic_id]:
+            yield message
+
+    async def iter_source(self, source_id):
+        for message in self._messages[0]:
             yield message
 
 
@@ -180,3 +188,35 @@ def test_discovery_is_topic_scoped():
         (10, 1),
         (20, 2),
     ]
+
+
+def test_discovery_without_topics_uses_source_history():
+    reader = FakeReader(
+        [],
+        {
+            0: [
+                msg(1, video=True),
+                msg(2, urls=(URL_A,)),
+            ]
+        },
+        mode="source",
+    )
+
+    candidates = collect(reader)
+
+    assert len(candidates) == 1
+    assert candidates[0].topic_id == 0
+    assert candidates[0].topic_name == ""
+    assert candidates[0].kind == "followup"
+    assert candidates[0].message_ids == (1, 2)
+    assert classify_candidates(candidates[0]).pattern == PATTERN_VIDEO_THEN_LINK
+
+
+def test_non_forum_link_then_video_is_not_a_sync_candidate():
+    reader = FakeReader(
+        [],
+        {0: [msg(1, urls=(URL_A,)), msg(2, video=True)]},
+        mode="source",
+    )
+
+    assert collect(reader) == []
