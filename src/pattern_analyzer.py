@@ -116,13 +116,6 @@ def _classify_group(
     group: list[TelegramMessage],
     next_message: TelegramMessage | None,
 ) -> Match | None:
-    urls = _unique_urls(group)
-    external_link = False
-
-    if not urls and next_message is not None and _is_link_only(next_message):
-        urls = list(next_message.urls)
-        external_link = True
-
     kinds = [
         "video" if m.has_video else "image" if m.has_image else "other"
         for m in group
@@ -131,7 +124,17 @@ def _classify_group(
     if kinds not in (["video", "image"], ["image", "image", "video"]):
         return None
 
-    if "video" not in kinds:
+    # The link must occur after the media composition:
+    # either on the final media message or in the immediately following
+    # standalone link message.
+    urls = list(group[-1].urls)
+    external_link = False
+
+    if not urls and next_message is not None and _is_link_only(next_message):
+        urls = list(next_message.urls)
+        external_link = True
+
+    if not urls:
         return None
 
     details = tuple(_detail(m) for m in group)
@@ -141,7 +144,7 @@ def _classify_group(
         details = details + (_detail(next_message),)
         message_ids = message_ids + (next_message.message_id,)
 
-    if kinds == ["video", "image"] and urls:
+    if kinds == ["video", "image"]:
         return Match(
             pattern=PATTERN_VIDEO_IMAGE_LINK,
             source_id=group[0].source_id,
@@ -152,18 +155,15 @@ def _classify_group(
             details=details,
         )
 
-    if kinds == ["image", "image", "video"] and urls:
-        return Match(
-            pattern=PATTERN_TWO_IMAGES_VIDEO_LINK,
-            source_id=group[0].source_id,
-            message_ids=message_ids,
-            grouped_ids=(group[0].grouped_id,) if group[0].grouped_id is not None else (),
-            urls=tuple(urls),
-            composition=("image", "image", "video", "link"),
-            details=details,
-        )
-
-    return None
+    return Match(
+        pattern=PATTERN_TWO_IMAGES_VIDEO_LINK,
+        source_id=group[0].source_id,
+        message_ids=message_ids,
+        grouped_ids=(group[0].grouped_id,) if group[0].grouped_id is not None else (),
+        urls=tuple(urls),
+        composition=("image", "image", "video", "link"),
+        details=details,
+    )
 
 
 def _is_link_only(message: TelegramMessage) -> bool:
