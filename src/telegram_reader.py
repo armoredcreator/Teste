@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator
 
-from telethon import TelegramClient
+from telethon import TelegramClient, functions
 
 
 @dataclass(frozen=True)
@@ -34,6 +34,60 @@ class TelegramReader:
         entity = await self.client.get_entity(source_id)
         title = getattr(entity, "title", None) or getattr(entity, "username", None)
         return str(title or source_id)
+
+    async def discover_topics(self, source_id: int) -> list[tuple[int, str]]:
+        result = await self.client(
+            functions.messages.GetForumTopicsRequest(
+                peer=source_id,
+                q=None,
+                offset_date=None,
+                offset_id=0,
+                offset_topic=0,
+                limit=100,
+            )
+        )
+        topics: list[tuple[int, str]] = []
+        for topic in getattr(result, "topics", []) or []:
+            topic_id = getattr(topic, "id", None)
+            if topic_id is not None:
+                topics.append(
+                    (int(topic_id), str(getattr(topic, "title", None) or topic_id).strip())
+                )
+        return topics
+
+    async def iter_topic(
+        self,
+        source_id: int,
+        topic_id: int,
+    ) -> AsyncIterator[TelegramMessage]:
+        offset_id = 0
+        while True:
+            result = await self.client(
+                functions.messages.GetRepliesRequest(
+                    peer=source_id,
+                    msg_id=topic_id,
+                    offset_id=offset_id,
+                    offset_date=None,
+                    add_offset=0,
+                    limit=100,
+                    max_id=0,
+                    min_id=0,
+                    hash=0,
+                )
+            )
+            messages = list(getattr(result, "messages", []) or [])
+            if not messages:
+                return
+            for message in messages:
+                yield self._convert(source_id, message)
+            ids = [int(getattr(message, "id", 0) or 0) for message in messages]
+            ids = [value for value in ids if value > 0]
+            if not ids:
+                return
+            oldest = min(ids)
+            if oldest == offset_id:
+                return
+            offset_id = oldest
 
     async def iter_source(self, source_id: int) -> AsyncIterator[TelegramMessage]:
         async for message in self.client.iter_messages(source_id, reverse=True):
