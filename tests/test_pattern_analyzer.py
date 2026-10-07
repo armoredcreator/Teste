@@ -1,17 +1,20 @@
+import asyncio
 from datetime import datetime, timezone
 
 from src.pattern_analyzer import (
-    PATTERN_LINK_THEN_VIDEO,
     PATTERN_TWO_IMAGES_VIDEO_LINK,
     PATTERN_VIDEO_IMAGE_LINK,
     PATTERN_VIDEO_LINK,
     PATTERN_VIDEO_THEN_LINK,
-    classify_messages,
+    classify_candidates,
 )
+from src.sync_discovery import _resolve_group, discover_sync_candidates
 from src.telegram_reader import TelegramMessage
 
 
 DATE = datetime(2026, 1, 1, tzinfo=timezone.utc)
+URL_A = "https://shopee.com.br/a"
+URL_B = "https://shopee.com.br/b"
 
 
 def msg(i, *, video=False, image=False, urls=(), group=None):
@@ -27,56 +30,153 @@ def msg(i, *, video=False, image=False, urls=(), group=None):
     )
 
 
-def test_five_required_patterns():
-    messages = [
-        msg(1, video=True, urls=("https://shopee.com.br/a",)),
-        msg(2, video=True),
-        msg(3, urls=("https://shopee.com.br/b",)),
-        msg(4, urls=("https://shopee.com.br/c",)),
-        msg(5, video=True),
-        msg(6, video=True, group=100),
-        msg(7, image=True, group=100),
-        msg(8, urls=("https://shopee.com.br/d",)),
-        msg(9, image=True, group=200),
-        msg(10, image=True, group=200),
-        msg(11, video=True, group=200),
-        msg(12, urls=("https://shopee.com.br/e",)),
+class FakeReader:
+    def __init__(self, topics, messages):
+        self._topics = topics
+        self._messages = messages
+
+    async def discover_topics(self, source_id):
+        return self._topics
+
+    async def iter_topic(self, source_id, topic_id):
+        for message in self._messages[topic_id]:
+            yield message
+
+
+def collect(reader):
+    async def run():
+        return [
+            candidate
+            async for candidate in discover_sync_candidates(reader, 1)
+        ]
+
+    return asyncio.run(run())
+
+
+def test_direct_video_with_link():
+    reader = FakeReader(
+        [(10, "topic")],
+        {10: [msg(1, video=True, urls=(URL_A,))]},
+    )
+
+    candidates = collect(reader)
+
+    assert len(candidates) == 1
+    assert candidates[0].kind == "direct"
+    assert classify_candidates(candidates[0]).pattern == PATTERN_VIDEO_LINK
+    assert candidates[0].selected_message_id == 1
+
+
+def test_video_then_link():
+    reader = FakeReader(
+        [(10, "topic")],
+        {
+            10: [
+                msg(1, video=True),
+                msg(2, urls=(URL_A,)),
+            ]
+        },
+    )
+
+    candidates = collect(reader)
+
+    assert len(candidates) == 1
+    assert candidates[0].kind == "followup"
+    assert candidates[0].message_ids == (1, 2)
+    assert classify_candidates(candidates[0]).pattern == PATTERN_VIDEO_THEN_LINK
+
+
+def test_link_then_video_is_not_a_sync_candidate():
+    reader = FakeReader(
+        [(10, "topic")],
+        {
+            10: [
+                msg(1, urls=(URL_A,)),
+                msg(2, video=True),
+            ]
+        },
+    )
+
+    assert collect(reader) == []
+
+
+def test_group_video_image_link():
+    group = [
+        msg(1, video=True, group=100),
+        msg(2, image=True, urls=(URL_A,), group=100),
     ]
 
-    matches = classify_messages(messages)
+    candidates = _resolve_group(group, 1, 10, "topic")
 
-    assert [m.pattern for m in matches] == [
-        PATTERN_VIDEO_LINK,
-        PATTERN_VIDEO_THEN_LINK,
-        PATTERN_LINK_THEN_VIDEO,
-        PATTERN_VIDEO_IMAGE_LINK,
-        PATTERN_TWO_IMAGES_VIDEO_LINK,
+    assert len(candidates) == 1
+    assert candidates[0].kind == "group"
+    assert candidates[0].selected_message_id == 1
+    assert candidates[0].urls == (URL_A,)
+    assert classify_candidates(candidates[0]).pattern == PATTERN_VIDEO_IMAGE_LINK
+
+
+def test_group_two_images_video_link():
+    group = [
+        msg(1, image=True, group=100),
+        msg(2, image=True, group=100),
+        msg(3, video=True, urls=(URL_A,), group=100),
     ]
 
+    candidates = _resolve_group(group, 1, 10, "topic")
 
-def test_group_order_is_strict():
-    messages = [
-        msg(1, image=True, group=10),
-        msg(2, video=True, group=10),
-        msg(3, urls=("https://shopee.com.br/a",)),
-        msg(4, image=True, group=20),
-        msg(5, image=True, group=20),
-        msg(6, video=True, group=20),
-        msg(7, urls=("https://shopee.com.br/b",)),
+    assert len(candidates) == 1
+    assert candidates[0].selected_message_id == 3
+    assert classify_candidates(candidates[0]).pattern == PATTERN_TWO_IMAGES_VIDEO_LINK
+
+
+def test_group_single_unique_link_selects_lowest_linked_video():
+    group = [
+        msg(10, video=True, group=100),
+        msg(5, video=True, urls=(URL_A,), group=100),
+        msg(7, image=True, urls=(URL_A,), group=100),
     ]
 
-    matches = classify_messages(messages)
+    candidates = _resolve_group(group, 1, 10, "topic")
 
-    assert len(matches) == 1
-    assert matches[0].pattern == PATTERN_TWO_IMAGES_VIDEO_LINK
+    assert len(candidates) == 1
+    assert candidates[0].selected_message_id == 5
 
 
-def test_link_before_video_does_not_become_video_then_link():
-    messages = [
-        msg(1, urls=("https://shopee.com.br/a",)),
-        msg(2, video=True),
+def test_group_multiple_links_emits_each_linked_video_once():
+    group = [
+        msg(10, image=True, urls=(URL_A,), group=100),
+        msg(11, video=True, urls=(URL_A,), group=100),
+        msg(12, video=True, urls=(URL_B,), group=100),
+        msg(13, video=True, group=100),
     ]
 
-    matches = classify_messages(messages)
+    candidates = _resolve_group(group, 1, 10, "topic")
 
-    assert [m.pattern for m in matches] == [PATTERN_LINK_THEN_VIDEO]
+    assert [candidate.selected_message_id for candidate in candidates] == [11, 12]
+    assert [candidate.urls for candidate in candidates] == [(URL_A,), (URL_B,)]
+
+
+def test_group_without_video_emits_nothing():
+    group = [
+        msg(1, image=True, group=100),
+        msg(2, image=True, urls=(URL_A,), group=100),
+    ]
+
+    assert _resolve_group(group, 1, 10, "topic") == []
+
+
+def test_discovery_is_topic_scoped():
+    reader = FakeReader(
+        [(10, "first"), (20, "second")],
+        {
+            10: [msg(1, video=True, urls=(URL_A,))],
+            20: [msg(2, video=True, urls=(URL_B,))],
+        },
+    )
+
+    candidates = collect(reader)
+
+    assert [(c.topic_id, c.selected_message_id) for c in candidates] == [
+        (10, 1),
+        (20, 2),
+    ]
