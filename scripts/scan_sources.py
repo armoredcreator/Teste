@@ -40,6 +40,11 @@ async def main() -> None:
             print()
             print(f"SOURCE: {source_id} — {title}")
             print("-" * 64)
+            mode = await reader.source_mode(source_id)
+            if mode == "forum":
+                print("Modo de coleta: FÓRUM / TÓPICOS")
+            else:
+                print("Modo de coleta: FONTE / SEM TÓPICOS")
             print("Lendo histórico...")
 
             matches = []
