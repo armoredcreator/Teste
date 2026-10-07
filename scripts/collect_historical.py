@@ -34,7 +34,7 @@ async def collect_source(
         async for candidate in discover_sync_candidates(reader, source_id):
             seen += 1
             db.record_seen(run_id)
-            if db.insert_candidate(candidate):
+            if db.insert_candidate(candidate, run_id):
                 inserted += 1
             if seen % 250 == 0:
                 db.commit()
