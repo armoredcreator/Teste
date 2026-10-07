@@ -64,7 +64,7 @@ class HistoricalDatabase:
                 status TEXT NOT NULL DEFAULT 'DISCOVERED',
                 discovered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(source_id, selected_message_id, original_url)
+                UNIQUE(source_id, original_url)
             );
 
             CREATE INDEX IF NOT EXISTS idx_candidates_status
@@ -105,7 +105,7 @@ class HistoricalDatabase:
             (int(run_id),),
         )
 
-    def insert_candidate(self, candidate: SyncCandidate) -> bool:
+    def insert_candidate(self, candidate: SyncCandidate, run_id: int) -> bool:
         original_url = str(candidate.urls[0]).strip() if candidate.urls else ""
         if not original_url:
             return False
@@ -143,7 +143,7 @@ class HistoricalDatabase:
                 candidates_existing=candidates_existing+?
             WHERE id=?
             """,
-            (1 if inserted else 0, 0 if inserted else 1, 0),
+            (1 if inserted else 0, 0 if inserted else 1, int(run_id)),
         )
         return inserted
 
