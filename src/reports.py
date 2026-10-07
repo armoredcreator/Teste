@@ -30,6 +30,7 @@ class ReportWriter:
                 "grouped_ids",
                 "urls",
                 "composition",
+                "details",
             ],
         )
         self._csv_writer.writeheader()
@@ -45,6 +46,7 @@ class ReportWriter:
             "grouped_ids": list(match.grouped_ids),
             "urls": list(match.urls),
             "composition": list(match.composition),
+            "details": list(match.details),
         }
 
         with self.evidence_path.open("a", encoding="utf-8") as handle:
@@ -58,6 +60,7 @@ class ReportWriter:
                 "grouped_ids": ",".join(map(str, match.grouped_ids)),
                 "urls": " | ".join(match.urls),
                 "composition": " | ".join(match.composition),
+                "details": json.dumps(list(match.details), ensure_ascii=False),
             }
         )
         self._csv_file.flush()
