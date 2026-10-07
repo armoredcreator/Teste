@@ -125,7 +125,7 @@ def _extract_shopee_urls(message, text: str) -> list[str]:
 
     import re
 
-    for raw in re.findall(r"https?://[^\\s<>]+", text, flags=re.IGNORECASE):
+    for raw in re.findall(r"https?://[^\s<>]+", text, flags=re.IGNORECASE):
         url = raw.rstrip(".,;:!?)]}>\\\"'")
         if _is_shopee_url(url):
             found.append(url)
