@@ -21,7 +21,7 @@ async def main() -> None:
         api_hash=config.api_hash,
         session_path=session_dir / "source_analyzer",
     )
-    report = ReportWriter(root)
+    report = ReportWriter(root, config.sources)
 
     print("=" * 64)
     print("TELEGRAM SOURCE ANALYZER — HISTÓRICO / SOMENTE LEITURA")
