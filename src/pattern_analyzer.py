@@ -242,4 +242,3 @@ def classify_candidates(candidate) -> Match | None:
         )
 
     return None
-\n
