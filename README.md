@@ -10,17 +10,26 @@ Configured locally through `credentials/project.env`:
 - SOURCE_2 = `-1002698134896`
 - SOURCE_3 = `-1002039708059`
 
+## Source modes
+
+The analyzer detects the Telegram source type before reading history:
+
+- **Fórum / tópicos** — discovers topics and scans each topic history separately.
+- **Fonte / sem tópicos** — scans the source history directly with iter_messages.
+
+Both modes use the same historical Sync candidate state machine. A source without topics therefore does not fail with GetForumTopicsRequest.
+
 ## Patterns
 
-The analyzer distinguishes these five patterns, preserving message order:
+The analyzer reports these Sync-compatible historical patterns:
 
 1. **video + link** — video and Shopee link in the same message.
-2. **video → link** — standalone video followed immediately by a standalone link message.
-3. **video + image + link** — grouped media in the exact order video, image, then the Shopee link.
-4. **image + image + video + link** — grouped media in the exact order image, image, video, then the Shopee link.
-5. **link + video** — standalone Shopee link immediately followed by a standalone video.
+2. **video → link** — standalone video followed by a standalone link message.
+3. **video + image + link** — grouped media with one unique Shopee link.
+4. **image + image + video + link** — grouped media with one unique Shopee link.
+5. **link + video** — observed/reportable pattern, but not emitted as a Sync candidate.
 
-For grouped patterns, the link may be in the final media message or in the immediately following standalone link message. A link appearing earlier in the group is not accepted.
+For grouped media, resolution follows the grouped-candidate rules used by historical Sync discovery: candidates are based on grouped_id, unique Shopee links and linked videos rather than an invented physical ordering rule.
 
 ## First run
 
@@ -35,7 +44,7 @@ python .\scripts\scan_sources.py
 On the first run, Telethon may ask for the Telegram account phone number, login code and 2FA password if enabled. The resulting user session is stored locally under:
 
 ```text
-credentials/telegram/source_analyzer.session
+credentials/telegram/armoredsync.session
 ```
 
 That session is ignored by Git.
