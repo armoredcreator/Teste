@@ -33,12 +33,13 @@ async def discover_sync_candidates(
     reader: TelegramReader,
     source_id: int,
 ) -> AsyncIterator[SyncCandidate]:
-    """Read history using the same discovery state machine as ArmoredSync.
+    """Historical candidate state machine adapted from ArmoredSync.
 
-    This is read-only: it never materializes Telegram media and never checks
-    or mutates the production SQLite database.
+    This module is intentionally read-only: it never downloads media and never
+    consults or mutates the production SQLite database.
     """
     topics = await reader.discover_topics(source_id)
+
     for topic_id, topic_name in topics:
         pending_video: TelegramMessage | None = None
         pending_group_id: int | None = None
@@ -47,40 +48,40 @@ async def discover_sync_candidates(
         async def flush_group() -> AsyncIterator[SyncCandidate]:
             nonlocal pending_group_id, pending_group
             if pending_group:
-                candidate = _resolve_group(
+                for candidate in _resolve_group(
                     pending_group,
                     source_id,
                     topic_id,
                     topic_name,
-                )
-                if candidate is not None:
+                ):
                     yield candidate
             pending_group_id = None
             pending_group = []
 
         async for message in reader.iter_topic(source_id, topic_id):
-            if message.grouped_id is not None:
-                grouped_id = int(message.grouped_id)
+            grouped_id = message.grouped_id
+            if grouped_id is not None:
+                grouped_id = int(grouped_id)
+
                 if pending_group_id is None:
                     if pending_video is not None:
-                        candidate = _resolve_pending(
-                            pending_video,
-                            source_id,
-                            topic_id,
-                            topic_name,
-                        )
+                        candidate = _resolve_pending(pending_video)
                         if candidate is not None:
-                            yield candidate
+                            yield _with_topic(candidate, source_id, topic_id, topic_name)
                         pending_video = None
+
                     pending_group_id = grouped_id
                     pending_group = [message]
+
                 elif grouped_id == pending_group_id:
                     pending_group.append(message)
+
                 else:
                     async for candidate in flush_group():
                         yield candidate
                     pending_group_id = grouped_id
                     pending_group = [message]
+
                 continue
 
             if pending_group:
@@ -89,8 +90,8 @@ async def discover_sync_candidates(
 
             if pending_video is not None:
                 if not message.has_video:
-                    url = message.urls[0] if message.urls else None
-                    if url:
+                    original_url = message.urls[0] if message.urls else None
+                    if original_url:
                         yield _make_followup(
                             pending_video,
                             message,
@@ -103,7 +104,8 @@ async def discover_sync_candidates(
             if not message.has_video:
                 continue
 
-            if message.urls:
+            original_url = message.urls[0] if message.urls else None
+            if original_url is not None:
                 yield _make_direct(
                     message,
                     source_id,
@@ -119,25 +121,41 @@ async def discover_sync_candidates(
                 yield candidate
 
         if pending_video is not None:
-            candidate = _resolve_pending(
-                pending_video,
-                source_id,
-                topic_id,
-                topic_name,
-            )
-            if candidate is not None:
-                yield candidate
+            original_url = pending_video.urls[0] if pending_video.urls else None
+            if original_url is not None:
+                yield _make_direct(
+                    pending_video,
+                    source_id,
+                    topic_id,
+                    topic_name,
+                )
 
 
-def _resolve_pending(
-    video: TelegramMessage,
+def _resolve_pending(message: TelegramMessage) -> SyncCandidate | None:
+    if not message.has_video or not message.urls:
+        return None
+    return _make_direct(message, message.source_id, 0, "")
+
+
+def _with_topic(
+    candidate: SyncCandidate,
     source_id: int,
     topic_id: int,
     topic_name: str,
-) -> SyncCandidate | None:
-    if not video.urls:
-        return None
-    return _make_direct(video, source_id, topic_id, topic_name)
+) -> SyncCandidate:
+    return SyncCandidate(
+        source_id=source_id,
+        topic_id=topic_id,
+        topic_name=topic_name,
+        message_ids=candidate.message_ids,
+        grouped_ids=candidate.grouped_ids,
+        urls=candidate.urls,
+        composition=candidate.composition,
+        selected_message_id=candidate.selected_message_id,
+        selected=candidate.selected,
+        details=candidate.details,
+        kind=candidate.kind,
+    )
 
 
 def _resolve_group(
@@ -145,46 +163,62 @@ def _resolve_group(
     source_id: int,
     topic_id: int,
     topic_name: str,
-) -> SyncCandidate | None:
-    videos = [m for m in messages if m.has_video]
+) -> list[SyncCandidate]:
+    videos = [message for message in messages if message.has_video]
     if not videos:
-        return None
+        return []
 
-    unique: dict[str, str] = {}
+    unique_links: dict[str, str] = {}
     for message in messages:
         for url in message.urls:
-            unique.setdefault(url.casefold(), url)
+            unique_links.setdefault(url.casefold(), url)
 
-    if len(unique) == 1:
-        url = next(iter(unique.values()))
-        linked = [m for m in videos if url.casefold() in {u.casefold() for u in m.urls}]
-        selected = min(linked or videos, key=lambda m: m.message_id)
-        return _make_group(
-            messages,
-            selected,
-            url,
-            source_id,
-            topic_id,
-            topic_name,
+    if len(unique_links) == 1:
+        original_url = next(iter(unique_links.values()))
+        linked_videos = [message for message in videos if message.urls]
+        selected = min(
+            linked_videos or videos,
+            key=lambda message: message.message_id,
         )
-
-    if len(unique) > 1:
-        # Exact Sync rule: with multiple distinct links, only videos carrying
-        # their own link are safe; links attached only to photos are ambiguous.
-        for selected in sorted(videos, key=lambda m: m.message_id):
-            if not selected.urls:
-                continue
-            url = selected.urls[0]
-            return _make_group(
+        return [
+            _make_group(
                 messages,
                 selected,
-                url,
+                original_url,
                 source_id,
                 topic_id,
                 topic_name,
             )
+        ]
 
-    return None
+    if len(unique_links) > 1:
+        candidates: list[SyncCandidate] = []
+        emitted_links: set[str] = set()
+
+        for message in sorted(videos, key=lambda value: value.message_id):
+            if not message.urls:
+                continue
+
+            url = message.urls[0]
+            key = url.casefold()
+            if key in emitted_links:
+                continue
+
+            emitted_links.add(key)
+            candidates.append(
+                _make_group(
+                    messages,
+                    message,
+                    url,
+                    source_id,
+                    topic_id,
+                    topic_name,
+                )
+            )
+
+        return candidates
+
+    return []
 
 
 def _make_direct(
@@ -242,15 +276,21 @@ def _make_group(
         source_id=source_id,
         topic_id=topic_id,
         topic_name=topic_name,
-        message_ids=tuple(m.message_id for m in messages),
+        message_ids=tuple(message.message_id for message in messages),
         grouped_ids=tuple(
-            sorted({m.grouped_id for m in messages if m.grouped_id is not None})
+            sorted(
+                {
+                    int(message.grouped_id)
+                    for message in messages
+                    if message.grouped_id is not None
+                }
+            )
         ),
         urls=(url,),
-        composition=tuple(_kind(m) for m in messages) + ("link",),
+        composition=tuple(_kind(message) for message in messages) + ("link",),
         selected_message_id=selected.message_id,
         selected=selected,
-        details=tuple(_detail(m) for m in messages),
+        details=tuple(_detail(message) for message in messages),
         kind="group",
     )
 
