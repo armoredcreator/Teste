@@ -328,6 +328,43 @@ class HistoricalDatabase:
         )
         self.conn.commit()
 
+    def next_stock_candidate(self):
+        return self.conn.execute(
+            """
+            SELECT c.* FROM candidates c
+            JOIN vision_results v ON v.candidate_id=c.id
+            WHERE c.status IN ('VISION_ACCEPTED','STOCK_PROCESSING')
+              AND v.status='VISION_ACCEPTED'
+            ORDER BY c.id
+            LIMIT 1
+            """
+        ).fetchone()
+
+    def set_stock_processing(self, candidate_id: int) -> None:
+        self.conn.execute(
+            "UPDATE candidates SET status='STOCK_PROCESSING', updated_at=CURRENT_TIMESTAMP WHERE id=? AND source_id=?",
+            (int(candidate_id), self.source_id),
+        )
+        self.conn.commit()
+
+    def set_stock_ready(self, candidate_id: int, original_path) -> None:
+        self.conn.execute(
+            "UPDATE candidates SET status='STOCK_READY', updated_at=CURRENT_TIMESTAMP WHERE id=? AND source_id=?",
+            (int(candidate_id), self.source_id),
+        )
+        self.conn.commit()
+
+    def set_stock_retryable_error(self, candidate_id: int, error: str) -> None:
+        self.conn.execute(
+            "UPDATE candidates SET status='STOCK_PROCESSING', updated_at=CURRENT_TIMESTAMP WHERE id=? AND source_id=?",
+            (int(candidate_id), self.source_id),
+        )
+        self.conn.execute(
+            "UPDATE vision_results SET error=?, updated_at=CURRENT_TIMESTAMP WHERE candidate_id=?",
+            (str(error), int(candidate_id)),
+        )
+        self.conn.commit()
+
     def vision_result(self, candidate_id: int):
         return self.conn.execute(
             "SELECT * FROM vision_results WHERE candidate_id=?",
