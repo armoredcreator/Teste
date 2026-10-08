@@ -151,7 +151,6 @@ class HistoricalExecutor:
         item_id = str(candidate["selected_message_id"])
         original = self.storage.original(
             item_id,
-            ".mp4",
             original_url=str(candidate["original_url"]),
         )
         self.db.reserve_item(
