@@ -1,6 +1,6 @@
 # ArmoredCreator — Architecture Definitiva
 
-> **Status:** arquitetura aprovada para implementação  
+> **Status:** arquitetura em implementação, ferramenta por ferramenta  
 > **Data:** 2026-10-07  
 > **Base comportamental:** `armoredcreator-test`  
 > **Objetivo:** executar o histórico das 3 fontes em CATCH-UP/ATACADO, isolado por fonte, e convergir ao estado permanente de LIVE nas três fontes.
@@ -182,7 +182,7 @@ O estado de cada candidato continua persistido no SQLite. "Atacado" não signifi
 
 A ordem entre fontes também é deliberada: F2 só começa depois que a etapa atual de F1 estiver concluída; a próxima ferramenta só é liberada depois que a ferramenta anterior terminou a etapa definida para a fonte atual.
 
-Na fase atual de migração, **somente Vision V1 está sendo executada em atacado**. Não há download, Studio, IA ou Hub nesta etapa.
+Na fase atual, **somente ArmoredSync está sendo fechado**. Vision e as etapas seguintes não devem ser acopladas ao Sync nem executadas até que o Sync esteja testado e validado ponta a ponta.
 
 ---
 
@@ -538,6 +538,65 @@ cleanup
 Nunca apagar o único artefato antes de confirmar a publicação.
 
 ---
+
+# 19.1. Estrutura física das ferramentas
+
+Cada ferramenta possui seu próprio módulo. Não concentrar a implementação de várias ferramentas em um executor histórico.
+
+```
+src/
+├── sync/
+│   ├── __init__.py
+│   ├── contracts.py
+│   ├── telegram_gateway.py
+│   └── service.py
+├── vision/
+├── stock/
+├── ia/
+├── studio/
+├── hub/
+├── core/
+└── coordinator.py
+```
+
+### ArmoredSync
+
+É responsável exclusivamente por:
+
+- entrada Telegram;
+- leitura histórica/LIVE;
+- descoberta de tópicos quando a fonte é fórum;
+- leitura direta quando a fonte não é fórum;
+- extração e validação do link de entrada;
+- formação determinística de candidatos.
+
+Não é responsabilidade do Sync:
+
+- consultar `productOfferV2`;
+- baixar/materializar vídeo;
+- executar IA;
+- editar mídia;
+- publicar;
+- confirmar publicação;
+- limpar workspace.
+
+### Contrato de entrada Shopee
+
+O Sync aceita exclusivamente:
+
+`https://s.shopee.com.br/<codigo_alphanumerico>`
+
+Rejeita no momento da coleta qualquer outro domínio, caminho, HTTP, query ou fragmento. A resolução do produto fica para ArmoredVision.
+
+### Regra de migração
+
+A ferramenta só é liberada para a próxima etapa quando houver:
+
+1. implementação no módulo próprio;
+2. testes automatizados;
+3. validação real da ferramenta isoladamente.
+
+Portanto, **não executar o CATCH-UP completo enquanto ArmoredSync não estiver validado**.
 
 # 20. Resultado comprovado pelo projeto Teste
 
