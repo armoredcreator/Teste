@@ -1,77 +1,294 @@
-# Teste — Telegram Source Analyzer
+# ArmoredCreator — Teste
 
-Independent, read-only analyzer for auditing Telegram sources and classifying the exact video/link patterns required by the project.
+> **Projeto definitivo em construção.**
+>
+> O repositório `armoredcreator-test` permanece **congelado e intocável**. Ele é referência de comportamento comprovado, não dependência de runtime.
 
-## Sources
+## 1. Estado atual
 
-Configured locally through `credentials/project.env`:
-
-- SOURCE_1 = `-1003788989075`
-- SOURCE_2 = `-1002698134896`
-- SOURCE_3 = `-1002039708059`
-
-## Source modes
-
-The analyzer detects the Telegram source type before reading history:
-
-- **Fórum / tópicos** — discovers topics and scans each topic history separately.
-- **Fonte / sem tópicos** — scans the source history directly with iter_messages.
-
-Both modes use the same historical Sync candidate state machine. A source without topics therefore does not fail with GetForumTopicsRequest.
-
-## Patterns
-
-The analyzer reports these Sync-compatible historical patterns:
-
-1. **video + link** — video and Shopee link in the same message.
-2. **video → link** — standalone video followed by a standalone link message.
-3. **video + image + link** — grouped media with one unique Shopee link.
-4. **image + image + video + link** — grouped media with one unique Shopee link.
-5. **link + video** — observed/reportable pattern, but not emitted as a Sync candidate.
-
-For grouped media, resolution follows the grouped-candidate rules used by historical Sync discovery: candidates are based on grouped_id, unique Shopee links and linked videos rather than an invented physical ordering rule.
-
-## First run
-
-From the repository root:
-
-```powershell
-python -m pip install -r requirements.txt
-python .\scripts\check_config.py
-python .\scripts\scan_sources.py
-```
-
-On the first run, Telethon may ask for the Telegram account phone number, login code and 2FA password if enabled. The resulting user session is stored locally under:
+A migração é feita **ferramenta por ferramenta**, cada uma no seu próprio módulo:
 
 ```text
-credentials/telegram/armoredsync.session
+ArmoredSync
+    ↓
+ArmoredVision
+    ↓
+ArmoredStock
+    ↓
+ArmoredIA
+    ↓
+ArmoredStudio
+    ↓
+ArmoredHub
+    ↓
+confirmação + cleanup
+    ↓
+CATCH-UP concluído
+    ↓
+LIVE
 ```
 
-That session is ignored by Git.
+**ArmoredSync é a etapa atualmente fechada estruturalmente. ArmoredVision ainda não foi iniciada como etapa de integração.**
 
-## Reports
+### Status objetivo
 
-The scanner creates locally:
+| Etapa | Status |
+|---|---|
+| ArmoredSync — módulo próprio | 🟢 concluído |
+| ArmoredSync — testes | 🟢 33 testes da suíte atual passam |
+| ArmoredSync — inventário histórico real | 🟢 reconstruído |
+| Auditoria final dos URLs nos SQLite | 🟡 próxima verificação |
+| Banco operacional definitivo por ferramenta/fonte | 🔴 pendente |
+| ArmoredVision | 🔴 pendente |
+| ArmoredStock | 🔴 pendente |
+| ArmoredIA | 🔴 pendente |
+| ArmoredStudio | 🔴 pendente |
+| ArmoredHub | 🔴 pendente |
+| CATCH-UP ponta a ponta | 🔴 pendente |
+| LIVE | 🔴 pendente |
 
-- `reports/pattern_summary.json` — counts per source and total.
-- `reports/pattern_evidence.jsonl` — one JSON evidence record per detected case.
-- `reports/pattern_evidence.csv` — spreadsheet-friendly evidence.
+## 2. ArmoredSync
 
-Each evidence record contains source ID, pattern, message IDs, grouped IDs, URLs, composition, message dates and media types.
+Código:
 
-## Safety / scope
+```text
+src/sync/
+├── __init__.py
+├── contracts.py
+├── telegram_gateway.py
+└── service.py
+```
 
-This phase is **read-only**.
+Responsabilidades exclusivas:
 
-It does not:
+- entrada Telegram;
+- leitura histórica e futura LIVE;
+- descoberta de tópicos quando a fonte for fórum;
+- leitura direta quando a fonte não for fórum;
+- extração e validação do link de entrada;
+- formação determinística de candidatos.
 
-- download videos;
-- publish or forward messages;
-- edit messages;
-- delete messages;
-- create Telegram queues;
-- modify the Telegram sources.
+O Sync **não**:
 
-The purpose of this phase is to establish real historical evidence before any downloader is designed.
+- consulta `productOfferV2`;
+- baixa vídeo;
+- executa IA;
+- edita mídia;
+- publica;
+- confirma publicação;
+- faz cleanup.
 
-`credentials/project.env`, Telegram session files and generated reports are intentionally excluded from Git.
+### Contrato de entrada Shopee
+
+O Sync aceita somente:
+
+```text
+https://s.shopee.com.br/<codigo_alphanumerico>
+```
+
+Rejeita outros domínios, caminhos, HTTP, query e fragmentos.
+
+A validação exata do produto fica para o ArmoredVision.
+
+## 3. Inventário histórico reconstruído
+
+Os bancos anteriores foram apagados porque haviam sido coletados antes do contrato definitivo de URL do ArmoredSync.
+
+A coleta foi executada novamente do zero pelo Sync corrigido, em 2026-10-08:
+
+| Fonte | Candidatos vistos | Candidatos únicos gravados |
+|---|---:|---:|
+| `-1003788989075` | 313 | **311** |
+| `-1002698134896` | 9.521 | **8.198** |
+| `-1002039708059` | 7.798 | **7.662** |
+| **TOTAL** | **17.632** | **16.171** |
+
+A coleta foi somente leitura:
+
+- nenhum vídeo foi baixado;
+- nenhuma mensagem Telegram foi modificada;
+- cada fonte possui seu próprio `historical.db`.
+
+Estrutura atual:
+
+```text
+batch/
+└── sources/
+    ├── -1003788989075/
+    │   └── database/historical.db
+    ├── -1002698134896/
+    │   └── database/historical.db
+    └── -1002039708059/
+        └── database/historical.db
+```
+
+**Importante:** 16.171 é o inventário reconstruído. Antes de congelá-lo como entrada definitiva do pipeline, os três SQLite devem passar pela auditoria automática do contrato de URL.
+
+## 4. Fontes
+
+| Fonte | Telegram ID | Tipo |
+|---|---:|---|
+| F1 | `-1003788989075` | fórum |
+| F2 | `-1002698134896` | fórum |
+| F3 | `-1002039708059` | canal/broadcast |
+
+A arquitetura é Telegram-first. Fórum não é requisito universal.
+
+## 5. Descoberta histórica
+
+Padrões comprovados:
+
+- `video + link`;
+- `video → link`;
+- `video + image + link`;
+- `image + image + video + link`;
+- múltiplos links conforme a estrutura real do grupo/álbum.
+
+`link → video` não é convertido artificialmente em candidato.
+
+A deduplicação histórica é por:
+
+```text
+source_id + original_url
+```
+
+## 6. Separação por ferramenta e por fonte
+
+O código é compartilhado; o estado é isolado.
+
+```text
+src/
+├── sync/
+├── vision/
+├── stock/
+├── ia/
+├── studio/
+├── hub/
+└── core/
+```
+
+A execução futura deverá usar:
+
+```text
+Fonte 1 → etapa atual
+Fonte 2 → etapa atual
+Fonte 3 → etapa atual
+          ↓
+próxima ferramenta
+```
+
+"ATACADO" significa drenar a etapa lógica da ferramenta sobre o backlog, **não** baixar toda a mídia de uma vez nem criar fila física.
+
+## 7. Princípios que não mudam
+
+- Coordinator é a composição raiz.
+- SQLite é a fonte de verdade.
+- Não usar RabbitMQ, Redis, Celery ou Kafka.
+- Não criar `publish_queue` ou outra fila física.
+- Não fazer pré-download em lote.
+- Manter fontes isoladas.
+- Vision ocorre antes da materialização.
+- `UNKNOWN` nunca equivale automaticamente a `ABSENT`.
+- Timeout recuperável não deve avançar checkpoint indevidamente.
+- Recovery só pode usar artefatos realmente existentes e imutáveis.
+- CATCH-UP converge para LIVE; CATCH-UP não é um produto separado.
+
+## 8. ArmoredVision — próxima etapa
+
+O Vision V1 existente ainda precisa ser **migrado, testado e validado como ferramenta independente** depois do fechamento definitivo do inventário.
+
+Regras já definidas para essa etapa:
+
+```text
+original_url
+    ↓
+resolver Shopee
+    ↓
+shop_id + item_id
+    ↓
+productOfferV2
+    ├── não encontrado → WAITING_VISION
+    └── encontrado → affiliate_url + ia_context
+```
+
+Não usar `generateShortLink` como prova de elegibilidade.
+
+Não criar Vision Triage por thumbnail, duração ou heurística visual.
+
+Vision V2 não entra nesta etapa.
+
+## 9. Ordem de implementação
+
+1. 🟢 ArmoredSync
+2. 🟡 auditoria/freeze do inventário
+3. 🔴 banco operacional definitivo por fonte
+4. 🔴 ArmoredVision
+5. 🔴 ArmoredStock
+6. 🔴 ArmoredIA
+7. 🔴 ArmoredStudio
+8. 🔴 ArmoredHub
+9. 🔴 confirmação + cleanup
+10. 🔴 CATCH-UP real ponta a ponta
+11. 🔴 LIVE
+
+Cada ferramenta só é liberada quando tiver:
+
+1. módulo próprio;
+2. testes automatizados;
+3. validação real isolada;
+4. documentação atualizada.
+
+## 10. Testes
+
+A validação estrutural atual do repositório foi executada com:
+
+```powershell
+python -m pytest -q -W error::RuntimeWarning
+```
+
+Resultado atual informado para esta etapa:
+
+```text
+33 passed
+```
+
+Além disso, o teste específico do ArmoredSync passou com:
+
+```text
+5 passed
+```
+
+Esses testes comprovam a estrutura do módulo, **não** substituem a validação real do Telegram. A reconstrução histórica real foi executada separadamente e produziu os 16.171 candidatos acima.
+
+## 11. Referência congelada
+
+`armoredcreator-test`:
+
+- não deve ser modificado;
+- não deve ser dependência do runtime final;
+- serve apenas para comparar comportamento comprovado.
+
+O objetivo do `Teste` é incorporar esse comportamento nativamente.
+
+## 12. Regra de documentação
+
+Ao terminar cada etapa:
+
+```text
+implementar
+   ↓
+testar
+   ↓
+validar
+   ↓
+documentar
+   ↓
+congelar
+   ↓
+próxima ferramenta
+```
+
+Não considerar uma etapa concluída apenas porque existe um commit.
+
+
+<!-- historical catch-up CI enabled; focused smoke enabled -->

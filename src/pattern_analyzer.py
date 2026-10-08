@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from .telegram_reader import TelegramMessage
+from .sync import TelegramMessage
 
 
 PATTERN_VIDEO_LINK = "video + link"

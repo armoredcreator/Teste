@@ -1,0 +1,53 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+
+def project_root() -> Path:
+    configured=os.getenv("ARMORED_ROOT")
+    return Path(configured).expanduser().resolve() if configured else Path(__file__).resolve().parents[2]
+
+
+def affiliate_tail(url:str|None,fallback:str|None=None)->str:
+    value=""
+    if url:
+        parsed=urlparse(str(url).strip())
+        value=unquote(parsed.path.rstrip("/").split("/")[-1])
+    if not value and fallback: value=str(fallback).strip()
+    safe="".join(c if c.isalnum() or c in "-_." else "_" for c in value).strip("._-")
+    return safe or "unknown"
+
+
+class Storage:
+    """Canonical filesystem projection for one runtime workspace."""
+
+    def __init__(self,root:Path|None=None)->None:
+        self.root=(root or project_root()).resolve()
+        self.storage=self.root/"storage"
+        self.database=self.storage/"database"
+        self.videos=self.storage/"videos"
+        self.logs=self.storage/"logs"
+        self.backups=self.storage/"backups"
+        for path in (self.database,self.videos,self.logs,self.backups): path.mkdir(parents=True,exist_ok=True)
+
+    def workspace(self,telegram_message_id:str|int)->Path:
+        content_id=str(telegram_message_id).strip()
+        if not content_id: raise ValueError("telegram-message-id-required")
+        path=self.videos/content_id; path.mkdir(parents=True,exist_ok=True); return path
+
+    def original(self,content_id:str,suffix=".mp4",original_url=None)->Path:
+        content_id=str(content_id).strip()
+        if not content_id: raise ValueError("content-id-required")
+        return self.workspace(content_id)/f"{content_id}_finallinkoriginal{suffix}"
+
+    def working(self,content_id:str)->Path:
+        content_id=str(content_id).strip()
+        if not content_id: raise ValueError("content-id-required")
+        return self.workspace(content_id)/f"{content_id}_.mp4"
+
+    def result(self,content_id:str,affiliate_url=None,affiliate_name=None)->Path:
+        content_id=str(content_id).strip()
+        if not content_id: raise ValueError("content-id-required")
+        return self.workspace(content_id)/f"{content_id}_finaldomeulinknovo.mp4"
