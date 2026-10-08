@@ -163,18 +163,27 @@ def _extract_shopee_urls(message, text: str) -> list[str]:
 
 
 def _is_shopee_url(url: str) -> bool:
+    """Accept only Shopee's short-link product format used by ArmoredSync.
+
+    Contract:
+        https://s.shopee.com.br/<alphanumeric-code>
+
+    Other Shopee domains and paths are intentionally ignored at collection
+    time. Product/offer resolution belongs to ArmoredVision after Sync.
+    """
     from urllib.parse import urlparse
+    import re
 
     try:
-        host = (urlparse(url).hostname or "").lower()
+        parsed = urlparse(url.strip())
     except ValueError:
         return False
 
-    return (
-        host == "shopee.com.br"
-        or host.endswith(".shopee.com.br")
-        or host == "shopee.co"
-        or host.endswith(".shopee.co")
-        or host == "shopee.ee"
-        or host.endswith(".shopee.ee")
-    )
+    if parsed.scheme.lower() != "https":
+        return False
+    if (parsed.hostname or "").lower() != "s.shopee.com.br":
+        return False
+    if parsed.query or parsed.fragment:
+        return False
+
+    return bool(re.fullmatch(r"/[A-Za-z0-9]+/?", parsed.path))
