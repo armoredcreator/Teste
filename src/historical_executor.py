@@ -294,9 +294,13 @@ class HistoricalExecutor:
                     self.db.mark_vision_waiting(item_id, str(exc))
                     self.historical.set_candidate_status(candidate_id, "WAITING_VISION")
                     return "WAITING_VISION"
-                self.db.transition(item_id, self.State.RECOVERY, f"VisionError: {exc}")
-                self.historical.set_candidate_status(candidate_id, "RECOVERY")
-                return "RECOVERY"
+
+                # Vision technical failure happened before an immutable ORIGINAL
+                # exists. It is not a recoverable pipeline state yet: preserve
+                # the candidate as reserved and stop this source so the same
+                # candidate is retried on the next execution.
+                self.historical.set_candidate_status(candidate_id, "RESERVED")
+                raise
 
         item = self.db.get(item_id)
         if item.state == self.State.WAITING_VISION:
@@ -305,7 +309,13 @@ class HistoricalExecutor:
 
         if not item.original_path.is_file():
             self.historical.set_candidate_status(candidate_id, "DOWNLOADING")
-            await self._materialize(int(candidate["selected_message_id"]), item.original_path)
+            try:
+                await self._materialize(int(candidate["selected_message_id"]), item.original_path)
+            except Exception:
+                # A failed/timeout download must never advance to the next
+                # historical candidate. No immutable ORIGINAL exists yet.
+                self.historical.set_candidate_status(candidate_id, "RESERVED")
+                raise
 
         item = self.db.get(item_id)
         self.historical.set_candidate_status(candidate_id, "PROCESSING")
