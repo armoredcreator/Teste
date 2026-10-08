@@ -153,7 +153,9 @@ class HistoricalExecutor:
             raise FileNotFoundError(
                 f"Telegram message {selected_message_id} não retornou mídia"
             )
-        if not getattr(raw, "video", None) and not getattr(raw, "document", None):
+        document = getattr(raw, "document", None)
+        mime = str(getattr(document, "mime_type", "") or "").lower()
+        if not getattr(raw, "video", None) and not mime.startswith("video/"):
             raise RuntimeError(
                 f"selected_message_id={selected_message_id} não contém vídeo"
             )
@@ -283,6 +285,19 @@ class HistoricalExecutor:
         item_id = self._reserve(candidate)
 
         item = self.db.get(item_id)
+        if item.state in {self.State.RECOVERY, self.State.FAILED}:
+            try:
+                self.recovery.reconcile(item_id)
+            except Exception as exc:
+                self.historical.set_candidate_status(candidate_id, "RECOVERY")
+                print(
+                    f"[CATCH-UP][SOURCE {self.source_id}] "
+                    f"candidate={candidate_id} recovery pendente: {exc}",
+                    flush=True,
+                )
+                return "RECOVERY"
+            item = self.db.get(item_id)
+
         if item.state == self.State.RECEIVED:
             try:
                 self._set_vision_result(item_id)
