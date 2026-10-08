@@ -4,8 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.historical_database import HistoricalDatabase
-from src.telegram_reader import TelegramMessage
-from src.sync_discovery import SyncCandidate
+from src.sync import TelegramMessage, SyncCandidate
 
 
 def candidate(message_id: int, url: str) -> SyncCandidate:
