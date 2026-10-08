@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
 import sys
 from pathlib import Path
@@ -17,11 +18,7 @@ def database_path(root: Path, source_id: int) -> Path:
     return root / "batch" / "sources" / str(source_id) / "database" / "historical.db"
 
 
-async def collect_source(
-    reader: TelegramReader,
-    root: Path,
-    source_id: int,
-) -> tuple[int, int]:
+async def collect_source(reader: TelegramReader, root: Path, source_id: int) -> tuple[int, int]:
     title = await reader.source_title(source_id)
     mode = await reader.source_mode(source_id)
     db = HistoricalDatabase(database_path(root, source_id), source_id)
@@ -76,11 +73,18 @@ async def collect_source(
         db.close()
 
 
-async def main() -> None:
+async def main(source_number: int | None = None) -> None:
     root = Path(__file__).resolve().parents[1]
     config = load_config(root)
     session_dir = root / "credentials" / "telegram"
     session_dir.mkdir(parents=True, exist_ok=True)
+
+    if source_number is not None:
+        if source_number < 1 or source_number > len(config.sources):
+            raise ValueError(f"--source deve estar entre 1 e {len(config.sources)}")
+        source_ids = (config.sources[source_number - 1],)
+    else:
+        source_ids = config.sources
 
     reader = TelegramReader(
         api_id=config.api_id,
@@ -100,8 +104,8 @@ async def main() -> None:
         totals = 0
         inserted = 0
 
-        for index, source_id in enumerate(config.sources, start=1):
-            print(f"[{index}/3] SOURCE {source_id}")
+        for index, source_id in enumerate(source_ids, start=1):
+            print(f"[{index}/{len(source_ids)}] SOURCE {source_id}")
             seen, added = await collect_source(reader, root, source_id)
             totals += seen
             inserted += added
@@ -116,4 +120,12 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--source",
+        type=int,
+        choices=(1, 2, 3),
+        help="reconstrói somente a fonte indicada; sem --source processa 1, 2 e 3",
+    )
+    args = parser.parse_args()
+    asyncio.run(main(args.source))
