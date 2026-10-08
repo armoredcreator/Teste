@@ -100,6 +100,16 @@ def test_historical_executor_rejects_empty_inventory(tmp_path, monkeypatch):
     from src.historical_database import HistoricalDatabase
 
     monkeypatch.setattr(module, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        module,
+        "load_config",
+        lambda _root: SimpleNamespace(
+            api_id=123,
+            api_hash="test-hash",
+            sources=(-1003788989075, -1002698134896, -1002039708059),
+        ),
+    )
+
     source_id = -1003788989075
     path = tmp_path / "batch" / "sources" / str(source_id) / "database" / "historical.db"
     path.parent.mkdir(parents=True, exist_ok=True)
