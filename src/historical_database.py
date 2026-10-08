@@ -182,7 +182,12 @@ class HistoricalDatabase:
 
     def next_candidate(self):
         return self.conn.execute(
-            "SELECT * FROM candidates WHERE status='DISCOVERED' ORDER BY id LIMIT 1"
+            """
+            SELECT * FROM candidates
+            WHERE status IN ('DISCOVERED','RESERVED','DOWNLOADING','PROCESSING','RECOVERY')
+            ORDER BY id
+            LIMIT 1
+            """
         ).fetchone()
 
     def candidate_by_selected_message(self, selected_message_id: int):
