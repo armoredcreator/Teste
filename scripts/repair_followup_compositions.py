@@ -38,8 +38,6 @@ def telegram_composition(messages) -> tuple[str, ...]:
             result.append("video")
         elif message.has_image:
             result.append("image")
-        else:
-            result.append("other")
     return tuple(result) + ("link",)
 
 
