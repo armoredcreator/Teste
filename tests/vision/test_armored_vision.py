@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.vision.service import ArmoredVision
+import src.vision.service as vision_service
 from src.vision.modules.v1 import shopee_resolver as resolver
 from src.vision.modules.v1.shopee_api import ShopeeProductNotFoundError
 from src.vision.contracts import VisionUnresolvedError
@@ -36,7 +37,7 @@ class FakeAPI:
 
 def test_armored_vision_resolves_exact_product_and_returns_v1_result(monkeypatch):
     monkeypatch.setattr(
-        resolver,
+        vision_service,
         "resolve_short_url",
         lambda url: SimpleNamespace(
             original_url=url,
