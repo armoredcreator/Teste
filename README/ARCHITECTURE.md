@@ -152,53 +152,37 @@ Não deve existir uma lacuna entre o último conteúdo histórico processável e
 
 # 6. Execução em ATACADO
 
-"ATACADO" significa **grande backlog**, não download simultâneo ilimitado.
+"ATACADO" significa **cada ferramenta drenar sua etapa sobre o backlog antes de liberar a próxima ferramenta**.
 
-Podemos ter milhares de candidatos conhecidos e persistidos:
-
-```
-Telegram
-  |
-  v
-Discovery
-  |
-  v
-SQLite
-  |
-  +--> muitos candidatos conhecidos
-```
-
-mas o processamento físico continua controlado:
+O CATCH-UP é uma esteira por ferramenta:
 
 ```
-1 item ativo
-   |
-   v
-Vision
-   |
-   v
-materialização
-   |
-   v
-IA
-   |
-   v
-Studio
-   |
-   v
-Hub
-   |
-   v
-confirmação
-   |
-   v
-cleanup
-   |
-   v
-próximo
+Discovery histórico
+      |
+      v
+VISION — todos os candidatos da fonte
+      |
+      v
+DOWNLOAD — todos os aprovados
+      |
+      v
+IA — todos os materializados
+      |
+      v
+STUDIO — todos da etapa
+      |
+      v
+HUB — todos da etapa
+      |
+      v
+CONFIRMAÇÃO + CLEANUP
 ```
 
-Não haverá pré-download de lotes.
+O estado de cada candidato continua persistido no SQLite. "Atacado" não significa colocar toda a mídia em RAM/disco de uma vez; significa concluir a etapa lógica da ferramenta antes de avançar para a próxima.
+
+A ordem entre fontes também é deliberada: F2 só começa depois que a etapa atual de F1 estiver concluída; a próxima ferramenta só é liberada depois que a ferramenta anterior terminou a etapa definida para a fonte atual.
+
+Na fase atual de migração, **somente Vision V1 está sendo executada em atacado**. Não há download, Studio, IA ou Hub nesta etapa.
 
 ---
 
