@@ -25,8 +25,26 @@ async def collect_source(
     title = await reader.source_title(source_id)
     mode = await reader.source_mode(source_id)
     db = HistoricalDatabase(database_path(root, source_id), source_id)
-    run_id = db.start_run()
     db.set_source(title, mode)
+
+    if db.has_completed_run():
+        print(
+            f"  [{source_id}] histórico já concluído; "
+            f"mantendo banco={db.total()} e pulando nova leitura.",
+            flush=True,
+        )
+        db.close()
+        return 0, 0
+
+    existing_before = db.total()
+    run_id = db.start_run()
+    if existing_before:
+        print(
+            f"  [{source_id}] retomada idempotente: "
+            f"banco_existente={existing_before}; "
+            f"URLs existentes serão preservadas sem duplicação.",
+            flush=True,
+        )
 
     inserted = 0
     seen = 0
