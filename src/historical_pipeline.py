@@ -375,14 +375,43 @@ async def run_catchup(root: Path | None = None, *, limit: int | None = None) -> 
 
         sync = await runner.ensure_sync_inventory()
         print("[SYNC]", sync)
+
         vision = runner.drain_vision(limit)
         print("[VISION]", vision)
+        if any(
+            values.get("VISION_PROCESSING", 0)
+            for values in runner.status().values()
+        ):
+            print("[BARRIER] Vision ainda possui item retryable; próximas ferramentas não iniciam.")
+            return {"sync": sync, "vision": vision, "status": runner.status(), "complete": False}
+
         stock = await runner.drain_stock(limit)
         print("[STOCK]", stock)
+        if any(
+            values.get("STOCK_PROCESSING", 0)
+            for values in runner.status().values()
+        ):
+            print("[BARRIER] Stock ainda possui item retryable; próximas ferramentas não iniciam.")
+            return {"sync": sync, "vision": vision, "stock": stock, "status": runner.status(), "complete": False}
+
         ia = runner.drain_ia(limit)
         print("[IA]", ia)
+        if any(
+            values.get("IA_PROCESSING", 0)
+            for values in runner.status().values()
+        ):
+            print("[BARRIER] IA ainda possui item retryable; próximas ferramentas não iniciam.")
+            return {"sync": sync, "vision": vision, "stock": stock, "ia": ia, "status": runner.status(), "complete": False}
+
         studio = runner.drain_studio(limit)
         print("[STUDIO]", studio)
+        if any(
+            values.get("STUDIO_PROCESSING", 0)
+            for values in runner.status().values()
+        ):
+            print("[BARRIER] Studio ainda possui item retryable; Hub não inicia.")
+            return {"sync": sync, "vision": vision, "stock": stock, "ia": ia, "studio": studio, "status": runner.status(), "complete": False}
+
         hub = runner.drain_hub(limit)
         print("[HUB]", hub)
 
