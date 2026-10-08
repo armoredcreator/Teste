@@ -16,4 +16,4 @@ jobs:
           python-version: "3.11"
       - run: pip install -r requirements.txt
       - run: python -m compileall -q src ArmoredIA ArmoredStudio ArmoredHub
-      - run: pytest -q tests/test_historical_pipeline.py
+      - run: PYTHONPATH=. pytest -q tests/test_historical_pipeline.py
