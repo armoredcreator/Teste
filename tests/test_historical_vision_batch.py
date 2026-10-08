@@ -93,3 +93,18 @@ def test_process_vision_one_reopens_candidate_after_technical_error():
         (3, "VISION_PROCESSING"),
         (3, "DISCOVERED"),
     ]
+
+
+def test_historical_executor_rejects_empty_inventory(tmp_path, monkeypatch):
+    import src.historical_executor as module
+    from src.historical_database import HistoricalDatabase
+
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    source_id = -1003788989075
+    path = tmp_path / "batch" / "sources" / str(source_id) / "database" / "historical.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = HistoricalDatabase(path, source_id)
+    db.close()
+
+    with pytest.raises(RuntimeError, match="Inventory histórica vazia"):
+        HistoricalExecutor(source_id)
