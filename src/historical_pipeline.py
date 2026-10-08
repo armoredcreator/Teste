@@ -16,6 +16,7 @@ from .vision.service import ArmoredVision
 from .vision.contracts import VisionUnresolvedError
 from .vision.historical import HistoricalVisionRunner
 from .stock.historical import HistoricalStockRunner
+from .sync import TelethonTelegramGateway, discover_sync_candidates
 from ArmoredIA.service import ArmoredIA
 from ArmoredStudio.service import ArmoredStudio
 from ArmoredHub.service import ArmoredHub
@@ -52,6 +53,44 @@ class HistoricalToolDrain:
 
     def close(self) -> None:
         self.core.close()
+    async def ensure_sync_inventory(self) -> dict[str, int]:
+        """Sync is the first logical stage; SQLite inventory is its durable output."""
+        config = load_config(self.root)
+        session_dir = self.root / "credentials" / "telegram"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        gateway = TelethonTelegramGateway(
+            api_id=config.api_id,
+            api_hash=config.api_hash,
+            session_path=session_dir / "armoredsync",
+        )
+        totals = {"seen": 0, "inserted": 0}
+        try:
+            await gateway.connect()
+            for sid in self.source_ids:
+                db = HistoricalDatabase(database_path(self.root, sid), sid)
+                try:
+                    if db.has_completed_run():
+                        continue
+                    title = await gateway.source_title(sid)
+                    mode = await gateway.source_mode(sid)
+                    db.set_source(title, mode)
+                    run_id = db.start_run()
+                    try:
+                        async for candidate in discover_sync_candidates(gateway, sid):
+                            totals["seen"] += 1
+                            db.record_seen(run_id)
+                            if db.insert_candidate(candidate, run_id):
+                                totals["inserted"] += 1
+                        db.finish_run(run_id, "COMPLETED")
+                    except Exception as exc:
+                        db.finish_run(run_id, "FAILED", str(exc))
+                        raise
+                finally:
+                    db.close()
+        finally:
+            await gateway.close()
+        return totals
+
 
     def _dbs(self):
         return [HistoricalDatabase(database_path(self.root, sid), sid) for sid in self.source_ids]
@@ -334,6 +373,8 @@ async def run_catchup(root: Path | None = None, *, limit: int | None = None) -> 
         print("SQLite é o estado; não existe fila física.")
         print()
 
+        sync = await runner.ensure_sync_inventory()
+        print("[SYNC]", sync)
         vision = runner.drain_vision(limit)
         print("[VISION]", vision)
         stock = await runner.drain_stock(limit)
