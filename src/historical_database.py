@@ -190,6 +190,17 @@ class HistoricalDatabase:
             """
         ).fetchone()
 
+    def next_vision_candidate(self):
+        """Return the next candidate that still needs the historical Vision stage."""
+        return self.conn.execute(
+            """
+            SELECT * FROM candidates
+            WHERE status IN ('DISCOVERED','VISION_PROCESSING')
+            ORDER BY id
+            LIMIT 1
+            """
+        ).fetchone()
+
     def candidate_by_selected_message(self, selected_message_id: int):
         return self.conn.execute(
             "SELECT * FROM candidates WHERE source_id=? AND selected_message_id=? LIMIT 1",
