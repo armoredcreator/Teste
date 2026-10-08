@@ -30,7 +30,11 @@ def source_root(source_id: int) -> Path:
 
 
 class HistoricalExecutor:
-    """One-item historical executor for the native Vision -> materialization stage."""
+    """Historical catch-up executor, migrated stage by stage.
+
+    The current migration stage is Vision-in-bulk. Materialization and all
+    downstream tools are deliberately kept out of this stage.
+    """
 
     def __init__(self, source_id: int):
         load_config(ROOT)
@@ -180,6 +184,85 @@ class HistoricalExecutor:
             raise RuntimeError(
                 f"estado inesperado após Vision: {refreshed.state}"
             )
+
+    def _ensure_reserved(self, candidate) -> str:
+        item_id = str(candidate["selected_message_id"])
+        try:
+            self.db.get(item_id)
+        except KeyError:
+            self._reserve(candidate)
+        return item_id
+
+    def process_vision_one(self, candidate) -> str:
+        """Run V1 Vision for one persisted historical candidate, without media."""
+        candidate_id = int(candidate["id"])
+        item_id = self._ensure_reserved(candidate)
+        self.historical.set_candidate_status(candidate_id, "VISION_PROCESSING")
+
+        item = self.db.get(item_id)
+        if item.state == self.State.WAITING_VISION:
+            self.historical.set_candidate_status(candidate_id, "WAITING_VISION")
+            return "WAITING_VISION"
+
+        if item.state not in {self.State.RECEIVED, self.State.VISION}:
+            raise RuntimeError(
+                f"estado inesperado antes da Vision: {item.state}"
+            )
+
+        try:
+            if item.state == self.State.RECEIVED:
+                self._set_vision_result(item_id)
+        except VisionUnresolvedError as exc:
+            self.db.mark_vision_waiting(item_id, str(exc))
+            self.historical.set_candidate_status(
+                candidate_id, "WAITING_VISION"
+            )
+            return "WAITING_VISION"
+        except Exception:
+            # A technical Vision failure leaves the candidate eligible for a
+            # retry and stops this source before the next source can start.
+            self.historical.set_candidate_status(candidate_id, "DISCOVERED")
+            raise
+
+        self.historical.set_candidate_status(candidate_id, "VISION_ACCEPTED")
+        return "VISION_ACCEPTED"
+
+    async def run_vision_batch(self) -> None:
+        """Drain the complete Vision stage for this source before downloads."""
+        await self.reader.connect()
+        processed = 0
+        accepted = 0
+        waiting = 0
+        try:
+            while True:
+                candidate = self.historical.next_vision_candidate()
+                if candidate is None:
+                    print(
+                        f"[VISION][SOURCE {self.source_id}] "
+                        f"COMPLETED processed={processed} "
+                        f"accepted={accepted} waiting={waiting}",
+                        flush=True,
+                    )
+                    return
+
+                outcome = self.process_vision_one(candidate)
+                processed += 1
+                if outcome == "VISION_ACCEPTED":
+                    accepted += 1
+                elif outcome == "WAITING_VISION":
+                    waiting += 1
+
+                print(
+                    f"[VISION][SOURCE {self.source_id}] "
+                    f"candidate={candidate['id']} "
+                    f"selected={candidate['selected_message_id']} "
+                    f"outcome={outcome}",
+                    flush=True,
+                )
+        finally:
+            await self.reader.close()
+            self.historical.close()
+            self.db.close()
 
     async def process_one(self, candidate) -> str:
         candidate_id = int(candidate["id"])
