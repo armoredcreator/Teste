@@ -8,9 +8,9 @@ import requests
 
 
 PATTERNS = (
-    re.compile(r"/opaanlp/(\\d+)/(\\d+)", re.I),
-    re.compile(r"/product/(\\d+)/(\\d+)", re.I),
-    re.compile(r"/(\\d+)/(\\d+)(?:[/?#]|$)", re.I),
+    re.compile(r"/opaanlp/(\d+)/(\d+)", re.I),
+    re.compile(r"/product/(\d+)/(\d+)", re.I),
+    re.compile(r"/(\d+)/(\d+)(?:[/?#]|$)", re.I),
 )
 
 
