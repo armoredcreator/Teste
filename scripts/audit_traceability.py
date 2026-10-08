@@ -65,7 +65,7 @@ def select_cases(source_id: int) -> list[AuditCase]:
             LIMIT 1
             """
         ).fetchone()
-        if row and not any(row["id"] == row["id"] for row in rows):
+        if row and not any(existing["id"] == row["id"] for existing in rows):
             rows.append(row)
 
     conn.close()
