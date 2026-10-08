@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import importlib
 import os
-import sys
 from pathlib import Path
-from typing import Any
 
 from .historical_database import HistoricalDatabase
 from .config import load_config
 from .telegram_reader import TelegramReader
+from .vision import ArmoredVision, VisionUnresolvedError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,17 +30,30 @@ def _base_root() -> Path:
 
 
 def _import_base() -> dict[str, Any]:
+    """Temporary compatibility boundary for the remaining native migrations.
+
+    Vision V1 is deliberately excluded: it already lives natively under
+    src/vision and must never be imported from armoredcreator-test.
+    """
     _base_root()
+    import armored_core.database
+    import armored_core.models
+    import armored_core.storage
+    import armored_core.pipeline
+    import armored_core.recovery
+    import ArmoredStudio.service
+    import ArmoredIA.service
+    import ArmoredHub.service
+
     return {
-        "Database": importlib.import_module("armored_core.database").Database,
-        "State": importlib.import_module("armored_core.models").State,
-        "Storage": importlib.import_module("armored_core.storage").Storage,
-        "Pipeline": importlib.import_module("armored_core.pipeline").Pipeline,
-        "Recovery": importlib.import_module("armored_core.recovery").Recovery,
-        "ArmoredVision": importlib.import_module("ArmoredVision.service").ArmoredVision,
-        "ArmoredStudio": importlib.import_module("ArmoredStudio.service").ArmoredStudio,
-        "ArmoredIA": importlib.import_module("ArmoredIA.service").ArmoredIA,
-        "ArmoredHub": importlib.import_module("ArmoredHub.service").ArmoredHub,
+        "Database": armored_core.database.Database,
+        "State": armored_core.models.State,
+        "Storage": armored_core.storage.Storage,
+        "Pipeline": armored_core.pipeline.Pipeline,
+        "Recovery": armored_core.recovery.Recovery,
+        "ArmoredStudio": ArmoredStudio.service.ArmoredStudio,
+        "ArmoredIA": ArmoredIA.service.ArmoredIA,
+        "ArmoredHub": ArmoredHub.service.ArmoredHub,
     }
 
 
@@ -86,7 +97,7 @@ class HistoricalExecutor:
 
         self.storage = self.Storage(self.source_root)
         self.db = self.Database(database_path(self.source_id))
-        self.vision = base["ArmoredVision"]()
+        self.vision = ArmoredVision()
         self.studio = base["ArmoredStudio"](self.source_root)
         self.ia = base["ArmoredIA"]()
 
@@ -293,7 +304,7 @@ class HistoricalExecutor:
             try:
                 self._set_vision_result(item_id)
             except Exception as exc:
-                if type(exc).__name__ == "VisionUnresolvedError":
+                if isinstance(exc, VisionUnresolvedError):
                     self.db.mark_vision_waiting(item_id, str(exc))
                     self.historical.set_candidate_status(candidate_id, "WAITING_VISION")
                     return "WAITING_VISION"
