@@ -75,3 +75,36 @@ It does not:
 The purpose of this phase is to establish real historical evidence before any downloader is designed.
 
 `credentials/project.env`, Telegram session files and generated reports are intentionally excluded from Git.
+
+
+## CATCH-UP histórico executável
+
+A ponte de execução histórica agora está em `src/historical_executor.py`. Ela usa o
+`armoredcreator-test` congelado como runtime, sem copiar nem modificar o repositório
+de referência.
+
+Para executar localmente:
+
+```powershell
+$env:ARMORED_BASE_ROOT="C:\caminho\para\armoredcreator-test"
+python .\scripts\run_historical_catchup.py
+```
+
+Regras do executor:
+
+1. Cada fonte possui `batch/sources/<source_id>/database/historical.db` e um
+   `armored.db`/workspace próprios.
+2. Apenas um candidato é ativo por vez.
+3. O candidato é reservado no SQLite antes de qualquer mídia.
+4. Vision V1 executa antes do download.
+5. Sem aceite V1, o candidato fica `WAITING_VISION` e nenhum vídeo é baixado.
+6. Com aceite, somente então a mídia selecionada é materializada.
+7. O pipeline congelado continua em IA/Studio/Hub/CONFIRMED/cleanup.
+8. `RECOVERY` é retomado antes do próximo candidato; `WAITING_VISION` não bloqueia
+   os demais candidatos.
+9. Interrupção em `RESERVED`, `DOWNLOADING`, `PROCESSING` ou `RECOVERY`
+   permanece retomável no próximo início.
+10. Não existe fila física nem pré-download em lote.
+
+O executor termina o CATCH-UP da fonte atual quando não há mais candidatos executáveis.
+A transição para LIVE será uma etapa separada, depois da certificação do executor.
