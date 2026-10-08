@@ -180,6 +180,24 @@ class HistoricalDatabase:
     def commit(self) -> None:
         self.conn.commit()
 
+    def next_candidate(self):
+        return self.conn.execute(
+            "SELECT * FROM candidates WHERE status='DISCOVERED' ORDER BY id LIMIT 1"
+        ).fetchone()
+
+    def candidate_by_selected_message(self, selected_message_id: int):
+        return self.conn.execute(
+            "SELECT * FROM candidates WHERE source_id=? AND selected_message_id=? LIMIT 1",
+            (self.source_id, int(selected_message_id)),
+        ).fetchone()
+
+    def set_candidate_status(self, candidate_id: int, status: str) -> None:
+        self.conn.execute(
+            "UPDATE candidates SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND source_id=?",
+            (str(status), int(candidate_id), self.source_id),
+        )
+        self.conn.commit()
+
     def counts(self) -> dict[str, int]:
         rows = self.conn.execute(
             "SELECT status, COUNT(*) AS total FROM candidates GROUP BY status"
