@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -11,52 +10,12 @@ from .historical_database import HistoricalDatabase
 from .config import load_config
 from .telegram_reader import TelegramReader
 from .vision import ArmoredVision, VisionUnresolvedError
+from .core.database import Database
+from .core.models import State
+from .core.storage import Storage
 
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _base_root() -> Path:
-    raw = (os.getenv("ARMORED_BASE_ROOT") or "").strip()
-    if not raw:
-        raise RuntimeError(
-            "ARMORED_BASE_ROOT não configurado; a execução usa o armoredcreator-test congelado "
-            "sem copiar ou modificar o repositório de referência."
-        )
-    path = Path(raw).expanduser().resolve()
-    if not (path / "armored_core" / "coordinator.py").is_file():
-        raise FileNotFoundError(f"armoredcreator-test inválido: {path}")
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
-    return path
-
-
-def _import_base() -> dict[str, Any]:
-    """Temporary compatibility boundary for the remaining native migrations.
-
-    Vision V1 is deliberately excluded: it already lives natively under
-    src/vision and must never be imported from armoredcreator-test.
-    """
-    _base_root()
-    import armored_core.database
-    import armored_core.models
-    import armored_core.storage
-    import armored_core.pipeline
-    import armored_core.recovery
-    import ArmoredStudio.service
-    import ArmoredIA.service
-    import ArmoredHub.service
-
-    return {
-        "Database": armored_core.database.Database,
-        "State": armored_core.models.State,
-        "Storage": armored_core.storage.Storage,
-        "Pipeline": armored_core.pipeline.Pipeline,
-        "Recovery": armored_core.recovery.Recovery,
-        "ArmoredStudio": ArmoredStudio.service.ArmoredStudio,
-        "ArmoredIA": ArmoredIA.service.ArmoredIA,
-        "ArmoredHub": ArmoredHub.service.ArmoredHub,
-    }
 
 
 def database_path(source_id: int) -> Path:
@@ -83,57 +42,33 @@ class HistoricalExecutor:
     """
 
     def __init__(self, source_id: int):
-        # Load project.env before constructing native services. Vision V1 reads
-        # SHOPEE_APP_ID/SHOPEE_SECRET_KEY from the process environment.
         load_config(ROOT)
         self.source_id = int(source_id)
         self.source_root = source_root(self.source_id)
         self.historical = HistoricalDatabase(historical_path(self.source_id), self.source_id)
-        base = _import_base()
 
-        self.Database = base["Database"]
-        self.State = base["State"]
-        self.Storage = base["Storage"]
-        self.Pipeline = base["Pipeline"]
-        self.Recovery = base["Recovery"]
-
+        # Native persistence/storage. The frozen reference repository is not
+        # used by the historical materialization stage.
+        self.State = State
+        self.Database = Database
+        self.Storage = Storage
         self.storage = self.Storage(self.source_root)
         self.db = self.Database(database_path(self.source_id))
         self.vision = ArmoredVision()
-        self.studio = base["ArmoredStudio"](self.source_root)
-        self.ia = base["ArmoredIA"]()
 
-        base_root = _base_root()
-        BaseHub = base["ArmoredHub"]
+        # Processing adapters are intentionally not invoked in this stage.
+        self.studio = None
+        self.ia = None
+        self.publisher = None
+        self.pipeline = None
+        self.recovery = None
 
-        class _SessionAwareHub(BaseHub):
-            def _telegram_session_path(self) -> Path:
-                return ROOT / "credentials" / "telegram" / "armoredsync"
-
-        self.publisher = _SessionAwareHub(base_root, self.db)
-
-        self.pipeline = self.Pipeline(
-            self.db,
-            self.storage,
-            self.vision,
-            self.studio,
-            self.publisher,
-            self.ia,
-        )
-        self.recovery = self.Recovery(
-            self.db,
-            self.storage,
-            self.vision,
-            self.studio,
-            self.publisher,
-            self.ia,
-        )
+        config = load_config(ROOT)
         self.reader = TelegramReader(
-            api_id=load_config(ROOT).api_id,
-            api_hash=load_config(ROOT).api_hash,
+            api_id=config.api_id,
+            api_hash=config.api_hash,
             session_path=ROOT / "credentials" / "telegram" / "armoredsync",
         )
-
     @staticmethod
     def _sha256(path: Path) -> str:
         digest = hashlib.sha256()
@@ -246,42 +181,6 @@ class HistoricalExecutor:
         else:
             self.db.transition(item_id, self.State.STUDIO, "vision-complete-before-download")
 
-    async def _recover_or_resume(self, candidate) -> bool:
-        item_id = str(candidate["selected_message_id"])
-        try:
-            item = self.db.get(item_id)
-        except KeyError:
-            return False
-
-        if item.state == self.State.PUBLISHED and item.cleanup_completed:
-            self.historical.set_candidate_status(int(candidate["id"]), "PUBLISHED")
-            return True
-
-        if item.state == self.State.WAITING_VISION:
-            self.historical.set_candidate_status(int(candidate["id"]), "WAITING_VISION")
-            return True
-
-        if item.state in {self.State.RECOVERY, self.State.FAILED}:
-            self.recovery.reconcile(item_id)
-            item = self.db.get(item_id)
-
-        if item.state == self.State.PUBLISHED and item.cleanup_completed:
-            self.historical.set_candidate_status(int(candidate["id"]), "PUBLISHED")
-            return True
-
-        if item.state != self.State.WAITING_VISION and item.state != self.State.PUBLISHED:
-            if item.original_path.is_file():
-                self.pipeline.run(item_id)
-
-        item = self.db.get(item_id)
-        if item.state == self.State.PUBLISHED and item.cleanup_completed:
-            self.historical.set_candidate_status(int(candidate["id"]), "PUBLISHED")
-        elif item.state == self.State.WAITING_VISION:
-            self.historical.set_candidate_status(int(candidate["id"]), "WAITING_VISION")
-        elif item.state == self.State.RECOVERY:
-            self.historical.set_candidate_status(int(candidate["id"]), "RECOVERY")
-        return True
-
     async def process_one(self, candidate) -> str:
         candidate_id = int(candidate["id"])
         item_id = str(candidate["selected_message_id"])
@@ -333,28 +232,17 @@ class HistoricalExecutor:
                 self.historical.set_candidate_status(candidate_id, "RESERVED")
                 raise
 
+        # This migration stage ends at a verified immutable ORIGINAL.
+        # Studio/IA/Hub will be migrated separately.
         item = self.db.get(item_id)
-        self.historical.set_candidate_status(candidate_id, "PROCESSING")
-        try:
-            self.pipeline.run(item_id)
-        except Exception:
-            item = self.db.get(item_id)
-            if item.state != self.State.RECOVERY:
-                self.db.transition(item_id, self.State.RECOVERY, "pipeline-error")
-            self.historical.set_candidate_status(candidate_id, "RECOVERY")
-            return "RECOVERY"
+        if not item.original_path.is_file():
+            self.historical.set_candidate_status(candidate_id, "RESERVED")
+            raise RuntimeError(
+                f"ORIGINAL ausente após materialização: {item.original_path}"
+            )
+        self.historical.set_candidate_status(candidate_id, "MATERIALIZED")
+        return "MATERIALIZED"
 
-        item = self.db.get(item_id)
-        if item.state == self.State.PUBLISHED and item.cleanup_completed:
-            self.historical.set_candidate_status(candidate_id, "PUBLISHED")
-            return "PUBLISHED"
-        if item.state == self.State.WAITING_VISION:
-            self.historical.set_candidate_status(candidate_id, "WAITING_VISION")
-            return "WAITING_VISION"
-        if item.state == self.State.RECOVERY:
-            self.historical.set_candidate_status(candidate_id, "RECOVERY")
-            return "RECOVERY"
-        return item.state.value
 
     async def run(self) -> None:
         await self.reader.connect()
