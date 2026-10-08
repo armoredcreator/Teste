@@ -58,20 +58,6 @@ def source_root(source_id: int) -> Path:
     return ROOT / "batch" / "sources" / str(source_id)
 
 
-class SessionAwareHub:
-    """Keep the frozen Hub implementation while reusing Teste's Telegram session."""
-
-    def __init__(self, hub: Any, session_path: Path):
-        self._hub = hub
-        self._session_path = Path(session_path)
-
-    def __getattr__(self, name: str):
-        return getattr(self._hub, name)
-
-    def _telegram_session_path(self) -> Path:
-        return self._session_path
-
-
 class HistoricalExecutor:
     """One-item historical executor.
 
@@ -102,11 +88,13 @@ class HistoricalExecutor:
         self.ia = base["ArmoredIA"]()
 
         base_root = _base_root()
-        hub = base["ArmoredHub"](base_root, self.db)
-        self.publisher = SessionAwareHub(
-            hub,
-            ROOT / "credentials" / "telegram" / "armoredsync",
-        )
+        BaseHub = base["ArmoredHub"]
+
+        class _SessionAwareHub(BaseHub):
+            def _telegram_session_path(self) -> Path:
+                return ROOT / "credentials" / "telegram" / "armoredsync"
+
+        self.publisher = _SessionAwareHub(base_root, self.db)
 
         self.pipeline = self.Pipeline(
             self.db,
