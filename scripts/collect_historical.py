@@ -10,15 +10,14 @@ sys.path.insert(0, str(ROOT))
 
 from src.config import load_config
 from src.historical_database import HistoricalDatabase
-from src.sync_discovery import discover_sync_candidates
-from src.telegram_reader import TelegramReader
+from src.sync import TelethonTelegramGateway, discover_sync_candidates
 
 
 def database_path(root: Path, source_id: int) -> Path:
     return root / "batch" / "sources" / str(source_id) / "database" / "historical.db"
 
 
-async def collect_source(reader: TelegramReader, root: Path, source_id: int) -> tuple[int, int]:
+async def collect_source(reader: TelethonTelegramGateway, root: Path, source_id: int) -> tuple[int, int]:
     title = await reader.source_title(source_id)
     mode = await reader.source_mode(source_id)
     db = HistoricalDatabase(database_path(root, source_id), source_id)
@@ -86,7 +85,7 @@ async def main(source_number: int | None = None) -> None:
     else:
         source_ids = config.sources
 
-    reader = TelegramReader(
+    reader = TelethonTelegramGateway(
         api_id=config.api_id,
         api_hash=config.api_hash,
         session_path=session_dir / "armoredsync",
