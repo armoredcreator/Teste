@@ -127,3 +127,20 @@ def test_waiting_vision_is_not_selected_for_resume(tmp_path: Path) -> None:
     assert row["id"] == 2
     assert row["status"] == "DISCOVERED"
     db.close()
+
+def test_next_vision_candidate_skips_already_resolved_vision(tmp_path: Path) -> None:
+    db = HistoricalDatabase(tmp_path / "historical.db", 123)
+    run_id = db.start_run()
+    assert db.insert_candidate(candidate(10, "https://shopee.co/a"), run_id)
+    assert db.insert_candidate(candidate(11, "https://shopee.co/b"), run_id)
+    assert db.insert_candidate(candidate(12, "https://shopee.co/c"), run_id)
+    db.commit()
+
+    db.set_candidate_status(1, "VISION_ACCEPTED")
+    db.set_candidate_status(2, "WAITING_VISION")
+    db.set_candidate_status(3, "VISION_PROCESSING")
+
+    row = db.next_vision_candidate()
+    assert row["id"] == 3
+    assert row["status"] == "VISION_PROCESSING"
+    db.close()
