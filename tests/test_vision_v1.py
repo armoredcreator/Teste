@@ -51,6 +51,12 @@ def test_vision_v1_returns_affiliate_and_ia_context(monkeypatch):
     assert result.affiliate_url == "https://shope.ee/affiliate"
     assert result.affiliate_urls == ("https://shope.ee/affiliate",)
     assert result.ia_context["productName"] == "Produto Teste"
+    assert result.ia_context["vision_version"] == "V1"
+    assert result.ia_context["vision_approved"] is True
+    assert result.ia_context["source_original_url"] == "https://shope.ee/example"
+    assert result.ia_context["resolved_shop_id"] == "123"
+    assert result.ia_context["resolved_item_id"] == "456"
+    assert result.ia_context["affiliate_url"] == "https://shope.ee/affiliate"
     assert api.calls == [("123", "456")]
 
 
