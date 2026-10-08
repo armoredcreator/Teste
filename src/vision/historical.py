@@ -51,6 +51,10 @@ class HistoricalVisionRunner:
             status = self.process_one(row)
             counts[status] += 1
             processed += 1
+            if status == "VISION_PROCESSING":
+                # A transient API/resolver failure is retryable, but do not
+                # hot-loop the same candidate in one invocation.
+                break
 
         counts["processed"] = processed
         return counts
