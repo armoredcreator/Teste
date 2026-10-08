@@ -47,7 +47,7 @@ class ArmoredStock:
             if message is None or not getattr(message, "video", None):
                 raise RuntimeError("stock-selected-telegram-message-has-no-video")
 
-            target = self.storage.original(candidate_id, row["original_url"])
+            target = self.storage.original(candidate_id)
             await self._download_to(gateway, message, target)
             self.db.set_stock_ready(candidate_id, target)
             return "STOCK_READY"
