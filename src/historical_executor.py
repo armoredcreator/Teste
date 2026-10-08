@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-from typing import Any
+import sys
 from pathlib import Path
+from typing import Any
 
 from .historical_database import HistoricalDatabase
 from .config import load_config
@@ -73,17 +74,17 @@ def source_root(source_id: int) -> Path:
 class HistoricalExecutor:
     """One-item historical executor.
 
-    Historical.db is the immutable discovery inventory. The frozen
-    armoredcreator-test Database is the execution source of truth for each
-    isolated source. No physical queue or pre-download batch is created.
+    Historical.db is the immutable discovery inventory. The remaining runtime
+    components are being migrated natively from the frozen reference. Vision V1
+    is already native here. No physical queue or pre-download batch is created.
 
     Crucially, Vision V1 runs after SQLite reservation but before Telegram
     media materialization. Only an accepted V1 result is allowed to download.
     """
 
     def __init__(self, source_id: int):
-        # Load project.env before importing/constructing frozen services. Vision V1
-        # reads SHOPEE_APP_ID/SHOPEE_SECRET_KEY directly from the process environment.
+        # Load project.env before constructing native services. Vision V1 reads
+        # SHOPEE_APP_ID/SHOPEE_SECRET_KEY from the process environment.
         load_config(ROOT)
         self.source_id = int(source_id)
         self.source_root = source_root(self.source_id)
