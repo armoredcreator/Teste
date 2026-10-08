@@ -227,8 +227,12 @@ class HistoricalExecutor:
         return "VISION_ACCEPTED"
 
     async def run_vision_batch(self) -> None:
-        """Drain the complete Vision stage for this source before downloads."""
-        await self.reader.connect()
+        """Drain the complete Vision stage for this source before downloads.
+
+        Vision operates exclusively on the persisted historical candidate URL
+        and the native SQLite item. Telegram media is deliberately not touched
+        here; Telegram is reopened only by the later materialization stage.
+        """
         processed = 0
         accepted = 0
         waiting = 0
@@ -259,7 +263,6 @@ class HistoricalExecutor:
                     flush=True,
                 )
         finally:
-            await self.reader.close()
             self.historical.close()
             self.db.close()
 
