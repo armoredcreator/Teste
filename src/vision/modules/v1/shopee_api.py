@@ -89,14 +89,11 @@ class ShopeeAffiliateAPI:
 
     def affiliate_link_for_product(self, product: dict[str, Any]):
         offer = str(product.get("offerLink") or "").strip()
-        if offer:
-            return offer
-        product_link = str(product.get("productLink") or "").strip()
-        if not product_link:
+        if not offer:
             raise ShopeeAPIError(
-                "Produto não possui productLink canônico para gerar afiliação"
+                "Produto resolvido não possui offerLink de afiliação"
             )
-        return str(self.generate_short_link(product_link)["short_link"]).strip()
+        return offer
 
     def generate_short_link(self, origin_url: str):
         query = (
