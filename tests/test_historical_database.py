@@ -97,3 +97,33 @@ def test_completed_run_is_detected(tmp_path: Path) -> None:
 
     assert db.has_completed_run()
     db.close()
+
+
+def test_next_candidate_resumes_processing_states(tmp_path: Path) -> None:
+    db = HistoricalDatabase(tmp_path / "historical.db", 123)
+    run_id = db.start_run()
+    assert db.insert_candidate(candidate(10, "https://shopee.co/a"), run_id)
+    assert db.insert_candidate(candidate(11, "https://shopee.co/b"), run_id)
+    db.commit()
+
+    db.set_candidate_status(1, "PROCESSING")
+    row = db.next_candidate()
+
+    assert row["id"] == 1
+    assert row["status"] == "PROCESSING"
+    db.close()
+
+
+def test_waiting_vision_is_not_selected_for_resume(tmp_path: Path) -> None:
+    db = HistoricalDatabase(tmp_path / "historical.db", 123)
+    run_id = db.start_run()
+    assert db.insert_candidate(candidate(10, "https://shopee.co/a"), run_id)
+    assert db.insert_candidate(candidate(11, "https://shopee.co/b"), run_id)
+    db.commit()
+
+    db.set_candidate_status(1, "WAITING_VISION")
+    row = db.next_candidate()
+
+    assert row["id"] == 2
+    assert row["status"] == "DISCOVERED"
+    db.close()
