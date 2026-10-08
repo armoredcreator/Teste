@@ -294,7 +294,7 @@ def _make_followup(
         message_ids=(video.message_id, link_message.message_id),
         grouped_ids=(),
         urls=link_message.urls,
-        composition=tuple(_kind(message) for message in (video, link_message)) + ("link",),
+        composition=("video",) + (("image",) if link_message.has_image else ()) + ("link",),
         selected_message_id=video.message_id,
         selected=video,
         details=(_detail(video), _detail(link_message)),
