@@ -40,9 +40,24 @@ class HistoricalExecutor:
         load_config(ROOT)
         self.source_id = int(source_id)
         self.source_root = source_root(self.source_id)
-        self.historical = HistoricalDatabase(
-            historical_path(self.source_id), self.source_id
-        )
+        inventory_path = historical_path(self.source_id)
+        if not inventory_path.is_file():
+            raise RuntimeError(
+                f"Inventory histórica ausente para source {self.source_id}: "
+                f"{inventory_path}. Execute scripts/collect_historical.py "
+                f"--source <1|2|3> antes do Vision."
+            )
+
+        self.historical = HistoricalDatabase(inventory_path, self.source_id)
+        inventory_total = self.historical.total()
+        if inventory_total <= 0:
+            self.historical.close()
+            raise RuntimeError(
+                f"Inventory histórica vazia para source {self.source_id}: "
+                f"{inventory_path}. O Vision não pode avançar com zero candidatos. "
+                f"Reconstrua a inventory com scripts/collect_historical.py "
+                f"--source <1|2|3>."
+            )
 
         self.State = State
         self.Database = Database
