@@ -60,3 +60,42 @@ def test_sync_rejects_non_short_shopee_urls():
         "https://example.com/1BEcv24py4",
     )
     assert all(not is_shopee_short_url(url) for url in rejected)
+
+
+class FakeGateway:
+    def __init__(self, messages, mode="source"):
+        self.messages = messages
+        self.mode = mode
+
+    async def source_mode(self, source_id):
+        return self.mode
+
+    async def discover_topics(self, source_id):
+        return []
+
+    async def iter_source(self, source_id):
+        for item in self.messages:
+            yield item
+
+    async def iter_topic(self, source_id, topic_id):
+        for item in self.messages:
+            yield item
+
+
+async def collect(async_iter):
+    return [item async for item in async_iter]
+
+
+def test_armored_sync_isolated_from_vision_and_download():
+    from src.sync import ArmoredSync
+
+    gateway = FakeGateway([
+        message(30, video=True, url="https://s.shopee.com.br/ABC123"),
+    ])
+    candidates = __import__("asyncio").run(
+        collect(ArmoredSync(gateway).discover(123))
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].selected_message_id == 30
+    assert candidates[0].urls == ("https://s.shopee.com.br/ABC123",)
