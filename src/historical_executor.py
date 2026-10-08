@@ -70,6 +70,9 @@ class HistoricalExecutor:
     """
 
     def __init__(self, source_id: int):
+        # Load project.env before importing/constructing frozen services. Vision V1
+        # reads SHOPEE_APP_ID/SHOPEE_SECRET_KEY directly from the process environment.
+        load_config(ROOT)
         self.source_id = int(source_id)
         self.source_root = source_root(self.source_id)
         self.historical = HistoricalDatabase(historical_path(self.source_id), self.source_id)
