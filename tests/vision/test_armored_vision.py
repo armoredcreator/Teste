@@ -89,7 +89,7 @@ def test_armored_vision_requires_original_url():
 
 def test_armored_vision_does_not_call_generate_short_link_when_offer_exists(monkeypatch):
     monkeypatch.setattr(
-        resolver,
+        vision_service,
         "resolve_short_url",
         lambda url: SimpleNamespace(
             original_url=url,
