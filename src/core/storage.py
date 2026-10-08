@@ -40,7 +40,7 @@ class Storage:
     def original(self,content_id:str,suffix=".mp4",original_url=None)->Path:
         content_id=str(content_id).strip()
         if not content_id: raise ValueError("content-id-required")
-        return self.workspace(content_id)/f"{content_id}_{affiliate_tail(original_url)}{suffix}"
+        return self.workspace(content_id)/f"{content_id}_finallinkoriginal{suffix}"
 
     def working(self,content_id:str)->Path:
         content_id=str(content_id).strip()
@@ -50,4 +50,4 @@ class Storage:
     def result(self,content_id:str,affiliate_url=None,affiliate_name=None)->Path:
         content_id=str(content_id).strip()
         if not content_id: raise ValueError("content-id-required")
-        return self.workspace(content_id)/f"{content_id}_{affiliate_tail(affiliate_url,affiliate_name)}.mp4"
+        return self.workspace(content_id)/f"{content_id}_finaldomeulinknovo.mp4"
