@@ -60,3 +60,40 @@ def test_historical_database_is_idempotent_per_source_url(tmp_path: Path) -> Non
 
     db.finish_run(run_id)
     db.close()
+
+
+def test_interrupted_run_is_recovered_without_touching_candidates(tmp_path: Path) -> None:
+    db = HistoricalDatabase(tmp_path / "historical.db", 123)
+    first_run = db.start_run()
+    db.insert_candidate(candidate(10, "https://shopee.co/a"), first_run)
+    db.commit()
+
+    # Simulate a process crash: the run remains RUNNING.
+    second_run = db.start_run()
+
+    old = db.conn.execute(
+        "SELECT status, finished_at, error FROM collection_runs WHERE id=?",
+        (first_run,),
+    ).fetchone()
+    current = db.conn.execute(
+        "SELECT status FROM collection_runs WHERE id=?",
+        (second_run,),
+    ).fetchone()
+
+    assert old["status"] == "INTERRUPTED"
+    assert old["finished_at"] is not None
+    assert old["error"] == "collector interrupted before normal completion"
+    assert current["status"] == "RUNNING"
+    assert db.total() == 1
+
+    db.finish_run(second_run)
+    db.close()
+
+
+def test_completed_run_is_detected(tmp_path: Path) -> None:
+    db = HistoricalDatabase(tmp_path / "historical.db", 123)
+    run_id = db.start_run()
+    db.finish_run(run_id)
+
+    assert db.has_completed_run()
+    db.close()
