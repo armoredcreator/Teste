@@ -52,12 +52,24 @@ class ArmoredVision:
             or f"{resolved.shop_id}_{resolved.item_id}"
         )
 
+        ia_context = self._ia_context(product)
+        ia_context.update(
+            {
+                "vision_version": "V1",
+                "vision_approved": True,
+                "source_original_url": original,
+                "resolved_shop_id": resolved.shop_id,
+                "resolved_item_id": resolved.item_id,
+                "affiliate_url": affiliate_url,
+            }
+        )
+
         return VisionResult(
             identifier,
             affiliate_url,
             affiliate_urls=(affiliate_url,),
             publication_caption=None,
-            ia_context=self._ia_context(product),
+            ia_context=ia_context,
         )
 
 
