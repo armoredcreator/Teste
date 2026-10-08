@@ -50,3 +50,24 @@ def test_followup_without_image_keeps_original_composition() -> None:
     )
 
     assert candidate.composition == ("video", "link")
+
+
+from src.telegram_reader import _is_shopee_url
+
+
+def test_sync_accepts_only_shopee_short_product_links() -> None:
+    assert _is_shopee_url("https://s.shopee.com.br/1BEcv24py4")
+    assert _is_shopee_url("https://s.shopee.com.br/ABC123")
+
+
+def test_sync_rejects_non_short_shopee_urls() -> None:
+    rejected = (
+        "https://creator.shopee.com.br/insight/live",
+        "https://shopee.com.br/product/123/456",
+        "https://affiliate.shopee.com.br/offer/custom_link",
+        "https://s.shopee.com.br/",
+        "http://s.shopee.com.br/1BEcv24py4",
+        "https://s.shopee.com.br/1BEcv24py4?sub_id=test",
+        "https://example.com/1BEcv24py4",
+    )
+    assert all(not _is_shopee_url(url) for url in rejected)
