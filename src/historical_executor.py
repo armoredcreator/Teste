@@ -4,7 +4,6 @@ import asyncio
 import hashlib
 import os
 from pathlib import Path
-from typing import Any
 
 from .historical_database import HistoricalDatabase
 from .config import load_config
@@ -31,24 +30,16 @@ def source_root(source_id: int) -> Path:
 
 
 class HistoricalExecutor:
-    """One-item historical executor.
-
-    Historical.db is the immutable discovery inventory. The remaining runtime
-    components are being migrated natively from the frozen reference. Vision V1
-    is already native here. No physical queue or pre-download batch is created.
-
-    Crucially, Vision V1 runs after SQLite reservation but before Telegram
-    media materialization. Only an accepted V1 result is allowed to download.
-    """
+    """One-item historical executor for the native Vision -> materialization stage."""
 
     def __init__(self, source_id: int):
         load_config(ROOT)
         self.source_id = int(source_id)
         self.source_root = source_root(self.source_id)
-        self.historical = HistoricalDatabase(historical_path(self.source_id), self.source_id)
+        self.historical = HistoricalDatabase(
+            historical_path(self.source_id), self.source_id
+        )
 
-        # Native persistence/storage. The frozen reference repository is not
-        # used by the historical materialization stage.
         self.State = State
         self.Database = Database
         self.Storage = Storage
@@ -56,7 +47,7 @@ class HistoricalExecutor:
         self.db = self.Database(database_path(self.source_id))
         self.vision = ArmoredVision()
 
-        # Processing adapters are intentionally not invoked in this stage.
+        # Deliberately absent in this migration stage.
         self.studio = None
         self.ia = None
         self.publisher = None
@@ -69,6 +60,7 @@ class HistoricalExecutor:
             api_hash=config.api_hash,
             session_path=ROOT / "credentials" / "telegram" / "armoredsync",
         )
+
     @staticmethod
     def _sha256(path: Path) -> str:
         digest = hashlib.sha256()
@@ -92,6 +84,7 @@ class HistoricalExecutor:
             raise FileNotFoundError(
                 f"Telegram message {selected_message_id} não retornou mídia"
             )
+
         document = getattr(raw, "document", None)
         mime = str(getattr(document, "mime_type", "") or "").lower()
         if not getattr(raw, "video", None) and not mime.startswith("video/"):
@@ -104,7 +97,9 @@ class HistoricalExecutor:
         if partial.exists():
             partial.unlink()
 
-        telegram_size = getattr(getattr(raw, "document", None), "size", None)
+        telegram_size = getattr(
+            getattr(raw, "document", None), "size", None
+        )
         idle_timeout = max(
             1,
             int(os.getenv("ARMORED_SYNC_DOWNLOAD_IDLE_TIMEOUT", "60")),
@@ -156,7 +151,7 @@ class HistoricalExecutor:
             original_url=str(candidate["original_url"]),
         )
         self.db.reserve_item(
-            str(candidate["selected_message_id"]),
+            item_id,
             source_id=str(self.source_id),
             topic_id=int(candidate["topic_id"]),
             topic_name=str(candidate["topic_name"] or ""),
@@ -176,73 +171,68 @@ class HistoricalExecutor:
             publication_caption=None,
             ia_context=getattr(result, "ia_context", None),
         )
-        if self.ia is not None and os.getenv("ARMORED_IA_ENABLED", "1") == "1" and os.getenv("ARMORED_IA_CAPTION_ENABLED", "1") == "1":
-            self.db.transition(item_id, self.State.IA, "vision-complete-before-download")
-        else:
-            self.db.transition(item_id, self.State.STUDIO, "vision-complete-before-download")
+
+        # This stage intentionally stops before Studio/IA/Hub. Vision data is
+        # persisted, but the item must remain resumable at the materialization
+        # boundary rather than being transitioned into downstream processing.
+        refreshed = self.db.get(item_id)
+        if refreshed.state not in {self.State.RECEIVED, self.State.VISION}:
+            raise RuntimeError(
+                f"estado inesperado após Vision: {refreshed.state}"
+            )
 
     async def process_one(self, candidate) -> str:
         candidate_id = int(candidate["id"])
         item_id = str(candidate["selected_message_id"])
+
         self.historical.set_candidate_status(candidate_id, "RESERVED")
         item_id = self._reserve(candidate)
 
         item = self.db.get(item_id)
-        if item.state in {self.State.RECOVERY, self.State.FAILED}:
-            try:
-                self.recovery.reconcile(item_id)
-            except Exception as exc:
-                self.historical.set_candidate_status(candidate_id, "RECOVERY")
-                print(
-                    f"[CATCH-UP][SOURCE {self.source_id}] "
-                    f"candidate={candidate_id} recovery pendente: {exc}",
-                    flush=True,
-                )
-                return "RECOVERY"
-            item = self.db.get(item_id)
-
         if item.state == self.State.RECEIVED:
             try:
                 self._set_vision_result(item_id)
-            except Exception as exc:
-                if isinstance(exc, VisionUnresolvedError):
-                    self.db.mark_vision_waiting(item_id, str(exc))
-                    self.historical.set_candidate_status(candidate_id, "WAITING_VISION")
-                    return "WAITING_VISION"
-
-                # Vision technical failure happened before an immutable ORIGINAL
-                # exists. It is not a recoverable pipeline state yet: preserve
-                # the candidate as reserved and stop this source so the same
-                # candidate is retried on the next execution.
+            except VisionUnresolvedError as exc:
+                self.db.mark_vision_waiting(item_id, str(exc))
+                self.historical.set_candidate_status(
+                    candidate_id, "WAITING_VISION"
+                )
+                return "WAITING_VISION"
+            except Exception:
+                # Technical Vision failure before immutable ORIGINAL: preserve
+                # the candidate as RESERVED and stop this source.
                 self.historical.set_candidate_status(candidate_id, "RESERVED")
                 raise
 
         item = self.db.get(item_id)
         if item.state == self.State.WAITING_VISION:
-            self.historical.set_candidate_status(candidate_id, "WAITING_VISION")
+            self.historical.set_candidate_status(
+                candidate_id, "WAITING_VISION"
+            )
             return "WAITING_VISION"
 
         if not item.original_path.is_file():
             self.historical.set_candidate_status(candidate_id, "DOWNLOADING")
             try:
-                await self._materialize(int(candidate["selected_message_id"]), item.original_path)
+                await self._materialize(
+                    int(candidate["selected_message_id"]),
+                    item.original_path,
+                )
             except Exception:
                 # A failed/timeout download must never advance to the next
-                # historical candidate. No immutable ORIGINAL exists yet.
+                # historical candidate.
                 self.historical.set_candidate_status(candidate_id, "RESERVED")
                 raise
 
-        # This migration stage ends at a verified immutable ORIGINAL.
-        # Studio/IA/Hub will be migrated separately.
         item = self.db.get(item_id)
         if not item.original_path.is_file():
             self.historical.set_candidate_status(candidate_id, "RESERVED")
             raise RuntimeError(
                 f"ORIGINAL ausente após materialização: {item.original_path}"
             )
+
         self.historical.set_candidate_status(candidate_id, "MATERIALIZED")
         return "MATERIALIZED"
-
 
     async def run(self) -> None:
         await self.reader.connect()
