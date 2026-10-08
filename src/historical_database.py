@@ -4,7 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from .sync_discovery import SyncCandidate
+from .sync import SyncCandidate
 
 
 class HistoricalDatabase:
