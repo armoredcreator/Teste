@@ -365,6 +365,28 @@ class HistoricalDatabase:
         )
         self.conn.commit()
 
+    def next_stage_candidate(self, statuses: tuple[str, ...]):
+        placeholders = ",".join("?" for _ in statuses)
+        return self.conn.execute(
+            f"SELECT * FROM candidates WHERE status IN ({placeholders}) ORDER BY id LIMIT 1",
+            tuple(statuses),
+        ).fetchone()
+
+    def set_stage_status(self, candidate_id: int, status: str, error: str | None = None) -> None:
+        self.conn.execute(
+            "UPDATE candidates SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND source_id=?",
+            (str(status), int(candidate_id), self.source_id),
+        )
+        if error is not None:
+            self.conn.execute(
+                "UPDATE vision_results SET error=?, updated_at=CURRENT_TIMESTAMP WHERE candidate_id=?",
+                (str(error), int(candidate_id)),
+            )
+        self.conn.commit()
+
+    def reset_stage_processing(self, candidate_id: int, status: str) -> None:
+        self.set_stage_status(candidate_id, status)
+
     def vision_result(self, candidate_id: int):
         return self.conn.execute(
             "SELECT * FROM vision_results WHERE candidate_id=?",
