@@ -33,5 +33,5 @@ def test_storage_contract_is_canonical_per_content_id(tmp_path):
     storage=Storage(tmp_path)
     original=storage.original("550",original_url="https://shopee.com/product/123/550")
     assert original.parent==tmp_path/"storage"/"videos"/"550"
-    assert original.name=="550_550.mp4"
+    assert original.name=="550_finallinkoriginal.mp4"
     assert storage.working("550").name=="550_.mp4"
