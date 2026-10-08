@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .historical_database import HistoricalDatabase
 from .config import load_config
-from .telegram_reader import TelegramReader
+from .sync import TelethonTelegramGateway
 from .vision import ArmoredVision, VisionUnresolvedError
 from .core.database import Database
 from .core.models import State
@@ -74,7 +74,7 @@ class HistoricalExecutor:
         self.recovery = None
 
         config = load_config(ROOT)
-        self.reader = TelegramReader(
+        self.reader = TelethonTelegramGateway(
             api_id=config.api_id,
             api_hash=config.api_hash,
             session_path=ROOT / "credentials" / "telegram" / "armoredsync",
