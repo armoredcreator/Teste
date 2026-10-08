@@ -8,8 +8,8 @@ from src.pattern_analyzer import (
     PATTERN_VIDEO_THEN_LINK,
     classify_candidates,
 )
-from src.sync_discovery import _resolve_group, discover_sync_candidates
-from src.telegram_reader import TelegramMessage
+from src.sync import TelegramMessage, discover_sync_candidates
+from src.sync.service import _resolve_group
 
 
 DATE = datetime(2026, 1, 1, tzinfo=timezone.utc)
