@@ -92,12 +92,31 @@ class HistoricalDatabase:
         self.conn.commit()
 
     def start_run(self) -> int:
+        # A machine/process crash can leave a run in RUNNING forever. Mark
+        # those stale runs explicitly before opening a new attempt. Existing
+        # candidates remain untouched and are safely deduplicated by URL.
+        self.conn.execute(
+            "UPDATE collection_runs "
+            "SET status='INTERRUPTED', "
+            "finished_at=COALESCE(finished_at, CURRENT_TIMESTAMP), "
+            "error=COALESCE(error, 'collector interrupted before normal completion') "
+            "WHERE source_id=? AND status='RUNNING'",
+            (self.source_id,),
+        )
         cur = self.conn.execute(
             "INSERT INTO collection_runs(source_id) VALUES(?)",
             (self.source_id,),
         )
         self.conn.commit()
         return int(cur.lastrowid)
+
+    def has_completed_run(self) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM collection_runs "
+            "WHERE source_id=? AND status='COMPLETED' LIMIT 1",
+            (self.source_id,),
+        ).fetchone()
+        return row is not None
 
     def record_seen(self, run_id: int) -> None:
         self.conn.execute(
